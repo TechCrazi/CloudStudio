@@ -1,6 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
+const { pipeline } = require('stream/promises');
 const {
   S3Client,
   PutObjectCommand,
@@ -8,6 +10,7 @@ const {
   PutBucketLifecycleConfigurationCommand
 } = require('@aws-sdk/client-s3');
 const { db } = require('./db');
+const Database = require('better-sqlite3');
 
 function parseBoolean(value, fallback = false) {
   if (value === undefined || value === null || value === '') {
@@ -47,6 +50,92 @@ function isoCompactStamp(date = new Date()) {
     .toISOString()
     .replace(/[-:]/g, '')
     .replace(/\.\d{3}Z$/, 'Z');
+}
+
+function buildRandomSuffix(bytes = 3) {
+  return crypto.randomBytes(bytes).toString('hex');
+}
+
+function safeUnlink(filePath) {
+  if (!filePath) {
+    return;
+  }
+  try {
+    fs.unlinkSync(filePath);
+  } catch (_error) {
+    // Ignore cleanup failures.
+  }
+}
+
+function fileExists(filePath) {
+  if (!filePath) {
+    return false;
+  }
+  try {
+    return fs.existsSync(filePath);
+  } catch (_error) {
+    return false;
+  }
+}
+
+function safeReadJson(filePath, fallback = null) {
+  if (!fileExists(filePath)) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function safeWriteJson(filePath, payload) {
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+}
+
+function moveFileSync(sourcePath, targetPath) {
+  try {
+    fs.renameSync(sourcePath, targetPath);
+    return;
+  } catch (_error) {
+    fs.copyFileSync(sourcePath, targetPath);
+    safeUnlink(sourcePath);
+  }
+}
+
+async function hashFileSha256(filePath) {
+  return await new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('error', reject);
+    stream.on('data', (chunk) => {
+      hash.update(chunk);
+    });
+    stream.on('end', () => {
+      resolve(hash.digest('hex'));
+    });
+  });
+}
+
+async function gzipFile(inputPath, outputPath, level) {
+  await pipeline(
+    fs.createReadStream(inputPath),
+    zlib.createGzip({ level }),
+    fs.createWriteStream(outputPath)
+  );
+}
+
+function verifySqliteBackupFile(filePath) {
+  const backupDb = new Database(filePath, { readonly: true });
+  try {
+    const row = backupDb.prepare('PRAGMA quick_check').get();
+    const status = String(row?.quick_check || row?.integrity_check || '').trim().toLowerCase();
+    if (status && status !== 'ok') {
+      throw new Error(`SQLite quick_check failed: ${status}`);
+    }
+  } finally {
+    backupDb.close();
+  }
 }
 
 function isNoLifecycleConfigError(error) {
@@ -141,6 +230,17 @@ function createDbBackupScheduler(options = {}) {
     endpoint: null,
     forcePathStyle: false,
     tempDir: null,
+    queueDir: null,
+    compressionEnabled: true,
+    compressionLevel: 6,
+    verifyQuickCheck: true,
+    retryBatchSize: 3,
+    maxQueuedFiles: 336,
+    queuedFiles: 0,
+    queuedBytes: 0,
+    queuePrunedFiles: 0,
+    queueRecoveredFiles: 0,
+    queueLastError: null,
     runOnStartup: true,
     applyLifecycle: true,
     lifecycleRuleId: 'cloudstudio-db-backup-retention',
@@ -260,6 +360,49 @@ function createDbBackupScheduler(options = {}) {
         defaultValue: fallbackTempDir
       }) || fallbackTempDir
     );
+    const queueDir = path.resolve(
+      pickString({
+        envNames: ['DB_BACKUP_QUEUE_DIR'],
+        uiValue: ui.queueDir,
+        defaultValue: path.join(tempDir, 'queue')
+      }) || path.join(tempDir, 'queue')
+    );
+    const compressionEnabled = pickBoolean({
+      envNames: ['DB_BACKUP_COMPRESS'],
+      uiValue: ui.compressionEnabled,
+      defaultValue: true
+    });
+    const compressionLevel = pickInteger({
+      envNames: ['DB_BACKUP_COMPRESSION_LEVEL'],
+      uiValue: ui.compressionLevel,
+      defaultValue: 6,
+      min: 1,
+      max: 9
+    });
+    const verifyQuickCheck = pickBoolean({
+      envNames: ['DB_BACKUP_VERIFY_QUICK_CHECK'],
+      uiValue: ui.verifyQuickCheck,
+      defaultValue: true
+    });
+    const retryBatchSize = pickInteger({
+      envNames: ['DB_BACKUP_RETRY_BATCH_SIZE'],
+      uiValue: ui.retryBatchSize,
+      defaultValue: 3,
+      min: 1,
+      max: 100
+    });
+    const maxQueuedFiles = pickInteger({
+      envNames: ['DB_BACKUP_MAX_QUEUED_FILES'],
+      uiValue: ui.maxQueuedFiles,
+      defaultValue: 336,
+      min: 1,
+      max: 100000
+    });
+    const uploadManifest = pickBoolean({
+      envNames: ['DB_BACKUP_UPLOAD_MANIFEST'],
+      uiValue: ui.uploadManifest,
+      defaultValue: true
+    });
 
     const hasCreds = Boolean(accessKeyId && secretAccessKey);
     const isOperational = Boolean(enabled && bucket && hasCreds);
@@ -293,13 +436,219 @@ function createDbBackupScheduler(options = {}) {
       applyLifecycle,
       lifecycleRuleId,
       forcePathStyle,
-      tempDir
+      tempDir,
+      queueDir,
+      compressionEnabled,
+      compressionLevel,
+      verifyQuickCheck,
+      retryBatchSize,
+      maxQueuedFiles,
+      uploadManifest
     };
   }
 
-  function getObjectKey(now = new Date()) {
-    const filename = `cloudstudio-db-${isoCompactStamp(now)}-${crypto.randomBytes(3).toString('hex')}.sqlite`;
+  function getObjectKey(now = new Date(), extension = 'sqlite') {
+    const ext = String(extension || 'sqlite')
+      .trim()
+      .replace(/^\.+/, '') || 'sqlite';
+    const filename = `cloudstudio-db-${isoCompactStamp(now)}-${buildRandomSuffix(3)}.${ext}`;
     return currentConfig?.prefix ? `${currentConfig.prefix}/${filename}` : filename;
+  }
+
+  function getManifestObjectKey(objectKey) {
+    return `${String(objectKey || '').trim()}.manifest.json`;
+  }
+
+  function listQueueMetaFiles(cfg = currentConfig) {
+    if (!cfg?.queueDir || !fileExists(cfg.queueDir)) {
+      return [];
+    }
+    const names = fs
+      .readdirSync(cfg.queueDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.endsWith('.queue.json'))
+      .map((entry) => path.join(cfg.queueDir, entry.name))
+      .sort((left, right) => {
+        const leftStat = fs.statSync(left);
+        const rightStat = fs.statSync(right);
+        return leftStat.mtimeMs - rightStat.mtimeMs;
+      });
+    return names;
+  }
+
+  function updateQueueStats(cfg = currentConfig) {
+    if (!cfg?.queueDir || !fileExists(cfg.queueDir)) {
+      state.queuedFiles = 0;
+      state.queuedBytes = 0;
+      return;
+    }
+    const metaFiles = listQueueMetaFiles(cfg);
+    let queuedFiles = 0;
+    let queuedBytes = 0;
+    for (const metaPath of metaFiles) {
+      const meta = safeReadJson(metaPath, null);
+      if (!meta || typeof meta !== 'object') {
+        continue;
+      }
+      const dataFilename = String(meta.dataFilename || '').trim();
+      const dataPath = dataFilename ? path.join(cfg.queueDir, dataFilename) : '';
+      if (!fileExists(dataPath)) {
+        safeUnlink(metaPath);
+        continue;
+      }
+      queuedFiles += 1;
+      try {
+        queuedBytes += Number(fs.statSync(dataPath).size || 0);
+      } catch (_error) {
+        // ignore size failures
+      }
+    }
+    state.queuedFiles = queuedFiles;
+    state.queuedBytes = queuedBytes;
+  }
+
+  function pruneQueue(cfg = currentConfig) {
+    if (!cfg?.queueDir) {
+      return;
+    }
+    const metas = listQueueMetaFiles(cfg);
+    if (metas.length <= cfg.maxQueuedFiles) {
+      return;
+    }
+    const removeCount = metas.length - cfg.maxQueuedFiles;
+    for (let index = 0; index < removeCount; index += 1) {
+      const metaPath = metas[index];
+      const meta = safeReadJson(metaPath, null);
+      const dataFilename = String(meta?.dataFilename || '').trim();
+      const dataPath = dataFilename ? path.join(cfg.queueDir, dataFilename) : '';
+      safeUnlink(dataPath);
+      safeUnlink(metaPath);
+      state.queuePrunedFiles += 1;
+    }
+  }
+
+  function queueFailedUpload(cfg, descriptor = {}, errorMessage = 'Upload failed') {
+    if (!cfg?.queueDir || !descriptor?.uploadPath || !fileExists(descriptor.uploadPath)) {
+      return null;
+    }
+    fs.mkdirSync(cfg.queueDir, { recursive: true });
+    const queueId = `${Date.now()}-${buildRandomSuffix(3)}`;
+    const ext = path.extname(descriptor.uploadPath) || '.bin';
+    const dataFilename = `${queueId}${ext}`;
+    const metaFilename = `${queueId}.queue.json`;
+    const dataPath = path.join(cfg.queueDir, dataFilename);
+    const metaPath = path.join(cfg.queueDir, metaFilename);
+
+    moveFileSync(descriptor.uploadPath, dataPath);
+    const meta = {
+      queueId,
+      queuedAt: new Date().toISOString(),
+      attempts: 0,
+      lastError: String(errorMessage || '').trim() || 'Upload failed',
+      dataFilename,
+      objectKey: descriptor.objectKey,
+      manifestObjectKey: descriptor.manifestObjectKey,
+      contentType: descriptor.contentType,
+      contentEncoding: descriptor.contentEncoding || null,
+      metadata: descriptor.metadata || {},
+      manifest: descriptor.manifest || null
+    };
+    safeWriteJson(metaPath, meta);
+    updateQueueStats(cfg);
+    pruneQueue(cfg);
+    updateQueueStats(cfg);
+    return {
+      dataPath,
+      metaPath
+    };
+  }
+
+  async function uploadBackupDescriptor(cfg, descriptor = {}) {
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: cfg.bucket,
+        Key: descriptor.objectKey,
+        Body: fs.createReadStream(descriptor.uploadPath),
+        ContentType: descriptor.contentType,
+        ...(descriptor.contentEncoding ? { ContentEncoding: descriptor.contentEncoding } : {}),
+        Metadata: descriptor.metadata || {}
+      })
+    );
+
+    if (cfg.uploadManifest && descriptor.manifestObjectKey && descriptor.manifest && typeof descriptor.manifest === 'object') {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: cfg.bucket,
+          Key: descriptor.manifestObjectKey,
+          Body: JSON.stringify(descriptor.manifest, null, 2),
+          ContentType: 'application/json'
+        })
+      );
+    }
+  }
+
+  async function retryQueuedBackups(cfg) {
+    if (!cfg?.isOperational || !s3 || !cfg.queueDir) {
+      updateQueueStats(cfg);
+      return;
+    }
+    if (!fileExists(cfg.queueDir)) {
+      updateQueueStats(cfg);
+      return;
+    }
+
+    const metas = listQueueMetaFiles(cfg);
+    if (!metas.length) {
+      updateQueueStats(cfg);
+      return;
+    }
+
+    let recovered = 0;
+    const maxAttempts = Math.max(1, Number(cfg.retryBatchSize || 1));
+    for (let index = 0; index < metas.length && recovered < maxAttempts; index += 1) {
+      const metaPath = metas[index];
+      const meta = safeReadJson(metaPath, null);
+      if (!meta || typeof meta !== 'object') {
+        safeUnlink(metaPath);
+        continue;
+      }
+      const dataFilename = String(meta.dataFilename || '').trim();
+      const dataPath = dataFilename ? path.join(cfg.queueDir, dataFilename) : '';
+      if (!fileExists(dataPath)) {
+        safeUnlink(metaPath);
+        continue;
+      }
+
+      const descriptor = {
+        objectKey: meta.objectKey,
+        manifestObjectKey: meta.manifestObjectKey,
+        uploadPath: dataPath,
+        contentType: meta.contentType || 'application/octet-stream',
+        contentEncoding: meta.contentEncoding || undefined,
+        metadata: meta.metadata && typeof meta.metadata === 'object' ? meta.metadata : {},
+        manifest: meta.manifest && typeof meta.manifest === 'object' ? meta.manifest : null
+      };
+
+      try {
+        await uploadBackupDescriptor(cfg, descriptor);
+        safeUnlink(dataPath);
+        safeUnlink(metaPath);
+        recovered += 1;
+        state.queueRecoveredFiles += 1;
+        state.queueLastError = null;
+      } catch (error) {
+        meta.attempts = Number(meta.attempts || 0) + 1;
+        meta.lastError = error?.message || String(error);
+        meta.lastAttemptAt = new Date().toISOString();
+        safeWriteJson(metaPath, meta);
+        state.queueLastError = meta.lastError;
+        break;
+      }
+    }
+
+    updateQueueStats(cfg);
+    if (recovered > 0) {
+      logger.info(`[cloudstudio:db-backup] Recovered ${recovered} queued backup upload(s).`);
+    }
   }
 
   function setNextRunAtFromNow() {
@@ -347,6 +696,12 @@ function createDbBackupScheduler(options = {}) {
     state.endpoint = next.endpoint || null;
     state.forcePathStyle = next.forcePathStyle;
     state.tempDir = next.tempDir || null;
+    state.queueDir = next.queueDir || null;
+    state.compressionEnabled = next.compressionEnabled;
+    state.compressionLevel = next.compressionLevel;
+    state.verifyQuickCheck = next.verifyQuickCheck;
+    state.retryBatchSize = next.retryBatchSize;
+    state.maxQueuedFiles = next.maxQueuedFiles;
     state.runOnStartup = next.runOnStartup;
     state.applyLifecycle = next.applyLifecycle;
     state.lifecycleRuleId = next.lifecycleRuleId;
@@ -365,6 +720,20 @@ function createDbBackupScheduler(options = {}) {
     } else {
       s3 = null;
     }
+
+    try {
+      if (next.tempDir) {
+        fs.mkdirSync(next.tempDir, { recursive: true });
+      }
+      if (next.queueDir) {
+        fs.mkdirSync(next.queueDir, { recursive: true });
+      }
+    } catch (_error) {
+      // Ignore directory creation errors here; backup run will capture actionable failure details.
+    }
+    updateQueueStats(next);
+    pruneQueue(next);
+    updateQueueStats(next);
 
     if (schedulerStarted) {
       if (!next.isOperational) {
@@ -464,25 +833,75 @@ function createDbBackupScheduler(options = {}) {
     const startedAtMs = Date.now();
 
     fs.mkdirSync(cfg.tempDir, { recursive: true });
-    const tempFile = path.join(cfg.tempDir, `cloudstudio-db-${Date.now()}.sqlite`);
+    const tempSQLiteFile = path.join(cfg.tempDir, `cloudstudio-db-${Date.now()}-${buildRandomSuffix(2)}.sqlite`);
+    let uploadPath = tempSQLiteFile;
+    let descriptor = null;
 
     try {
-      await db.backup(tempFile);
-      const stats = fs.statSync(tempFile);
-      const objectKey = getObjectKey(new Date());
+      await retryQueuedBackups(cfg);
+      await db.backup(tempSQLiteFile);
+      if (cfg.verifyQuickCheck) {
+        verifySqliteBackupFile(tempSQLiteFile);
+      }
 
-      await s3.send(
-        new PutObjectCommand({
-          Bucket: cfg.bucket,
-          Key: objectKey,
-          Body: fs.createReadStream(tempFile),
-          ContentType: 'application/x-sqlite3',
-          Metadata: {
-            source: 'cloudstudio',
-            db: 'cloudstudio.db'
-          }
-        })
-      );
+      const sqliteStats = fs.statSync(tempSQLiteFile);
+      let contentType = 'application/x-sqlite3';
+      let contentEncoding;
+      let extension = 'sqlite';
+      let compressed = false;
+
+      if (cfg.compressionEnabled) {
+        const compressedPath = `${tempSQLiteFile}.gz`;
+        await gzipFile(tempSQLiteFile, compressedPath, cfg.compressionLevel);
+        uploadPath = compressedPath;
+        contentType = 'application/gzip';
+        contentEncoding = 'gzip';
+        extension = 'sqlite.gz';
+        compressed = true;
+      }
+
+      const uploadStats = fs.statSync(uploadPath);
+      const sha256 = await hashFileSha256(uploadPath);
+      const objectKey = getObjectKey(new Date(), extension);
+      const manifestObjectKey = getManifestObjectKey(objectKey);
+      const manifest = {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        key: objectKey,
+        manifestKey: manifestObjectKey,
+        sourceDb: 'cloudstudio.db',
+        sqliteBytes: Number(sqliteStats.size || 0),
+        uploadedBytes: Number(uploadStats.size || 0),
+        checksum: {
+          algorithm: 'sha256',
+          value: sha256
+        },
+        compression: compressed
+          ? {
+              type: 'gzip',
+              level: cfg.compressionLevel
+            }
+          : {
+              type: 'none'
+            }
+      };
+      descriptor = {
+        objectKey,
+        manifestObjectKey,
+        uploadPath,
+        contentType,
+        contentEncoding,
+        metadata: {
+          source: 'cloudstudio',
+          db: 'cloudstudio.db',
+          checksum: 'sha256',
+          sha256,
+          compression: compressed ? 'gzip' : 'none'
+        },
+        manifest
+      };
+
+      await uploadBackupDescriptor(cfg, descriptor);
 
       if (cfg.applyLifecycle) {
         try {
@@ -497,38 +916,63 @@ function createDbBackupScheduler(options = {}) {
       state.lastSuccessAt = state.lastCompletedAt;
       state.lastDurationMs = Date.now() - startedAtMs;
       state.lastStatus = 'ok';
-      state.lastKey = objectKey;
-      state.lastSizeBytes = Number(stats.size || 0);
+      state.lastKey = descriptor.objectKey;
+      state.lastSizeBytes = Number(manifest.uploadedBytes || 0);
       state.lastError = null;
+      state.queueLastError = null;
+      updateQueueStats(cfg);
+      pruneQueue(cfg);
+      updateQueueStats(cfg);
 
       logger.info(
-        `[cloudstudio:db-backup] Upload complete (${reason}) -> s3://${cfg.bucket}/${objectKey} (${state.lastSizeBytes} bytes)`
+        `[cloudstudio:db-backup] Upload complete (${reason}) -> s3://${cfg.bucket}/${descriptor.objectKey} (${state.lastSizeBytes} bytes, compression=${compressed ? 'gzip' : 'none'})`
       );
 
       return {
         ok: true,
-        key: objectKey,
+        key: descriptor.objectKey,
         bytes: state.lastSizeBytes
       };
     } catch (error) {
+      let queued = false;
+      if (descriptor && descriptor.uploadPath && fileExists(descriptor.uploadPath)) {
+        const queuedEntry = queueFailedUpload(cfg, descriptor, error?.message || String(error));
+        if (queuedEntry) {
+          queued = true;
+          logger.warn(
+            `[cloudstudio:db-backup] Upload failed (${reason}); queued backup for retry: ${path.basename(queuedEntry.dataPath)}`
+          );
+        }
+      }
       state.lastCompletedAt = new Date().toISOString();
       state.lastDurationMs = Date.now() - startedAtMs;
-      state.lastStatus = 'error';
-      state.lastError = error?.message || String(error);
-      logger.error(`[cloudstudio:db-backup] Backup failed (${reason}): ${state.lastError}`);
+      if (queued) {
+        state.lastStatus = 'degraded';
+        state.lastError = null;
+      } else {
+        state.lastStatus = 'error';
+        state.lastError = error?.message || String(error);
+      }
+      if (queued) {
+        logger.warn(`[cloudstudio:db-backup] Backup queued (${reason}) due to upload error: ${error?.message || String(error)}`);
+      } else {
+        logger.error(`[cloudstudio:db-backup] Backup failed (${reason}): ${state.lastError}`);
+      }
+      updateQueueStats(cfg);
+      pruneQueue(cfg);
+      updateQueueStats(cfg);
       return {
-        ok: false,
-        error: state.lastError
+        ok: queued,
+        queued,
+        error: queued ? null : state.lastError,
+        queuedFiles: state.queuedFiles
       };
     } finally {
       state.running = false;
-      try {
-        if (fs.existsSync(tempFile)) {
-          fs.unlinkSync(tempFile);
-        }
-      } catch (_error) {
-        // Ignore cleanup failures.
+      if (uploadPath !== tempSQLiteFile) {
+        safeUnlink(uploadPath);
       }
+      safeUnlink(tempSQLiteFile);
     }
   }
 
@@ -548,11 +992,17 @@ function createDbBackupScheduler(options = {}) {
 
     if (cfg.runOnStartup) {
       void runBackup('startup');
-    } else if (cfg.applyLifecycle) {
-      void ensureLifecycleRule().catch((error) => {
-        state.lastLifecycleError = error?.message || String(error);
-        logger.warn(`[cloudstudio:db-backup] Lifecycle update on startup failed: ${state.lastLifecycleError}`);
+    } else {
+      void retryQueuedBackups(cfg).catch((error) => {
+        state.queueLastError = error?.message || String(error);
+        logger.warn(`[cloudstudio:db-backup] Queue retry on startup failed: ${state.queueLastError}`);
       });
+      if (cfg.applyLifecycle) {
+        void ensureLifecycleRule().catch((error) => {
+          state.lastLifecycleError = error?.message || String(error);
+          logger.warn(`[cloudstudio:db-backup] Lifecycle update on startup failed: ${state.lastLifecycleError}`);
+        });
+      }
     }
   }
 

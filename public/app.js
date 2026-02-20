@@ -6319,6 +6319,9 @@ function renderDbBackupRuntimeStatus(status = null) {
     if (status.nextRunAt) {
       parts.push(`next=${formatDateTime(status.nextRunAt)}`);
     }
+    if (status.lastStatus === 'degraded') {
+      parts.push('state=degraded (using local queue)');
+    }
   } else {
     parts.push(`Scheduler: disabled (${status.disabledReason || 'not configured'})`);
   }
@@ -6328,6 +6331,15 @@ function renderDbBackupRuntimeStatus(status = null) {
   }
   if (status.lastKey) {
     parts.push(`last object=${status.lastKey}`);
+  }
+  if (status.compressionEnabled !== undefined) {
+    parts.push(`compression=${status.compressionEnabled ? `gzip(level ${status.compressionLevel || 6})` : 'off'}`);
+  }
+  if (Number.isFinite(Number(status.queuedFiles)) && Number(status.queuedFiles) > 0) {
+    parts.push(`queued=${formatNumber(status.queuedFiles)} (${formatBytes(status.queuedBytes || 0)})`);
+  }
+  if (status.queueLastError) {
+    parts.push(`queue warning=${status.queueLastError}`);
   }
   if (status.lastLifecycleError) {
     parts.push(`lifecycle warning=${status.lastLifecycleError}`);

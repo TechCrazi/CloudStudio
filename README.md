@@ -223,11 +223,23 @@ CloudStudio can take SQLite backups and upload them to any S3-compatible target 
 - `DB_BACKUP_APPLY_LIFECYCLE=true`
 - `DB_BACKUP_LIFECYCLE_RULE_ID=cloudstudio-db-backup-retention`
 - `DB_BACKUP_TMP_DIR=./data/tmp-backups`
+- `DB_BACKUP_QUEUE_DIR=./data/tmp-backups/queue`
+- `DB_BACKUP_COMPRESS=true` (gzip `.sqlite.gz` upload)
+- `DB_BACKUP_COMPRESSION_LEVEL=6` (1-9)
+- `DB_BACKUP_VERIFY_QUICK_CHECK=true`
+- `DB_BACKUP_UPLOAD_MANIFEST=true`
+- `DB_BACKUP_RETRY_BATCH_SIZE=3`
+- `DB_BACKUP_MAX_QUEUED_FILES=336`
 
 Behavior:
 
 - Backups are created from SQLite using `better-sqlite3` backup API for consistency.
+- Backups are gzip-compressed by default before upload (`.sqlite.gz`).
 - Uploaded object keys use timestamped filenames under `DB_BACKUP_PREFIX`.
+- A JSON manifest (`*.manifest.json`) is uploaded with checksum + size metadata.
+- If S3/Wasabi is unavailable, backups are queued locally and retried automatically on the next runs.
+- Queue retention is capped (`DB_BACKUP_MAX_QUEUED_FILES`) so the app keeps running without crashing.
+- Queue-only backup runs are marked as `degraded` (not fatal) so CloudStudio continues serving normally.
 - Lifecycle retention is enforced by creating/updating one lifecycle rule for the configured prefix.
 - If lifecycle API permissions are missing, backup upload still succeeds and logs a lifecycle warning.
 - Config precedence is env-first: if a `DB_BACKUP_*` env var is set, it overrides Admin UI values; missing env vars fall back to saved Admin UI config.
