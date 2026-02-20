@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CloudStudio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer">
+      <div class="mesh"></div>
+      <div class="grid"></div>
+    </div>
+    <header class="topbar">
+      <button id="menuBtn" class="icon-btn" aria-label="Open navigation">☰</button>
+      <div class="title-block">
+        <div class="brand-line">
+          <p class="eyebrow">Unified Control Plane</p>
+          <span id="mainBrandInitials" class="brand-initials" aria-label="Company initials">CS</span>
+        </div>
+        <h1 id="mainBrandName">CloudStudio</h1>
+      </div>
+      <div class="topbar-meta">
+        <div id="authUserPill" class="auth-user-pill">Signed in</div>
+        <button id="logoutBtn" class="btn secondary topbar-logout" type="button">Logout</button>
+      </div>
+    </header>
+
+    <aside id="drawer" class="drawer drawer-open" aria-label="Main navigation">
+      <button class="nav-item active" data-view="dashboard">
+        <span class="nav-icon" aria-hidden="true">🏠</span>
+        <span class="nav-label">Dashboard</span>
+      </button>
+      <button class="nav-item" data-view="pricing">
+        <span class="nav-icon" aria-hidden="true">🧮</span>
+        <span class="nav-label">Pricing</span>
+      </button>
+      <button id="billingNavBtn" class="nav-item" data-view="billing">
+        <span class="nav-icon" aria-hidden="true">💳</span>
+        <span class="nav-label">Billing</span>
+        <span id="billingNavChevron" class="nav-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div id="billingNavGroup" class="nav-group billing-nav-group"></div>
+      <button class="nav-item" data-view="storage">
+        <span class="nav-icon" aria-hidden="true">💾</span>
+        <span class="nav-label">Storage</span>
+      </button>
+      <button id="liveNavBtn" class="nav-item" data-view="live">
+        <span class="nav-icon" aria-hidden="true">⚡</span>
+        <span class="nav-label">Live View (VSAx)</span>
+        <span id="liveNavChevron" class="nav-chevron" aria-hidden="true">▸</span>
+      </button>
+      <div id="liveNavGroup" class="nav-group billing-nav-group collapsed"></div>
+      <button class="nav-item" data-view="security">
+        <span class="nav-icon" aria-hidden="true">🛡️</span>
+        <span class="nav-label">Security</span>
+      </button>
+      <button class="nav-item" data-view="ip-address">
+        <span class="nav-icon" aria-hidden="true">🌐</span>
+        <span class="nav-label">IP Address</span>
+      </button>
+      <button class="nav-item" data-view="cloud-metrics">
+        <span class="nav-icon" aria-hidden="true">📈</span>
+        <span class="nav-label">Cloud Metrics</span>
+      </button>
+      <button class="nav-item" data-view="tags">
+        <span class="nav-icon" aria-hidden="true">🏷️</span>
+        <span class="nav-label">Tags</span>
+      </button>
+      <button id="adminNavBtn" class="nav-group-toggle" type="button">
+        <span class="nav-icon" aria-hidden="true">⚙️</span>
+        <span class="nav-label">Admin</span>
+        <span id="adminNavChevron" class="nav-chevron" aria-hidden="true">▾</span>
+      </button>
+      <div id="adminNavGroup" class="nav-group">
+        <button class="nav-item nav-item-subapp" data-view="vendors">
+          <span class="nav-icon" aria-hidden="true">🏢</span>
+          <span class="nav-label">Vendor onboarding</span>
+        </button>
+        <button class="nav-item nav-item-subapp" data-view="admin-users">
+          <span class="nav-icon" aria-hidden="true">👤</span>
+          <span class="nav-label">Users</span>
+        </button>
+        <button class="nav-item nav-item-subapp" data-view="admin-api-keys">
+          <span class="nav-icon" aria-hidden="true">🔐</span>
+          <span class="nav-label">API keys</span>
+        </button>
+        <button class="nav-item nav-item-subapp" data-view="admin-backup">
+          <span class="nav-icon" aria-hidden="true">🗄️</span>
+          <span class="nav-label">Backup</span>
+        </button>
+      </div>
+      <button class="nav-item" data-view="apidocs">
+        <span class="nav-icon" aria-hidden="true">🔌</span>
+        <span class="nav-label">API Docs</span>
+      </button>
+      <div id="healthPill" class="drawer-service-status" aria-live="polite">
+        <p class="drawer-service-title">Service Modules</p>
+        <div class="service-status-item">
+          <span class="service-status-dot"></span>
+          <span class="service-status-label">Loading...</span>
+          <span class="service-status-value">-</span>
+        </div>
+      </div>
+    </aside>
+
+    <main id="workspace" class="workspace drawer-open">
+      <section class="view active" data-view="dashboard">
+        <div class="view-head">
+          <h2>Cross-cloud summary</h2>
+          <button id="refreshOverviewBtn" class="btn secondary">Refresh</button>
+        </div>
+        <div id="overviewBillingPanel" class="panel">
+          <h3 id="overviewBillingTitle">Provider/account totals (last month)</h3>
+          <div id="overviewBillingCards" class="cards"></div>
+          <div class="billing-org-panel">
+            <div class="billing-org-head">
+              <h4>Org totals (from tags)</h4>
+              <p id="overviewBillingOrgHint" class="muted">Calculated from <code>org</code> tag on billing line items.</p>
+            </div>
+            <div id="overviewBillingOrgCards" class="cards billing-org-cards">
+              <article class="card">
+                <p class="label">Org totals</p>
+                <p class="value">-</p>
+              </article>
+            </div>
+          </div>
+          <div class="billing-org-panel">
+            <div class="billing-org-head">
+              <h4>Product totals (from tags)</h4>
+              <p id="overviewBillingProductHint" class="muted">Calculated from <code>product</code> tag on billing line items.</p>
+            </div>
+            <div id="overviewBillingProductCards" class="cards billing-org-cards">
+              <article class="card">
+                <p class="label">Product totals</p>
+                <p class="value">-</p>
+              </article>
+            </div>
+          </div>
+        </div>
+        <div class="panel storage-summary-panel">
+          <div class="inline-actions">
+            <h3>Storage summary</h3>
+          </div>
+          <div id="overviewCards" class="cards"></div>
+          <div class="storage-summary-provider">
+            <h3>Provider totals</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Accounts</th>
+                    <th>Resources</th>
+                    <th>Storage bytes</th>
+                    <th>Egress 24h</th>
+                    <th>Ingress 24h</th>
+                    <th>Txns 24h</th>
+                    <th>Last sync</th>
+                  </tr>
+                </thead>
+                <tbody id="overviewProvidersBody"></tbody>
+              </table>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section class="view" data-view="vendors">
+        <div class="view-head">
+          <h2>Vendor onboarding</h2>
+          <div class="inline-actions">
+            <button id="exportAllVendorsBtn" class="btn secondary" type="button">Export all</button>
+            <button id="importAllVendorsBtn" class="btn secondary" type="button">Import all</button>
+            <button id="refreshVendorsBtn" class="btn secondary">Reload</button>
+          </div>
+        </div>
+        <input id="importAllVendorsInput" type="file" accept="application/json,.json" hidden />
+        <input id="importSingleVendorInput" type="file" accept="application/json,.json" hidden />
+        <div class="split">
+          <form id="vendorForm" class="panel form-panel">
+            <h3>Add or update vendor</h3>
+            <label>
+              Name
+              <input name="name" required />
+            </label>
+            <label>
+              Provider
+              <select name="provider" id="providerSelect">
+                <option value="azure">Azure</option>
+                <option value="aws">AWS</option>
+                <option value="gcp">GCP</option>
+                <option value="rackspace">Rackspace</option>
+                <option value="private">Private</option>
+                <option value="wasabi">WASABI-WACM</option>
+                <option value="wasabi-main">WASABI-MAIN</option>
+                <option value="other">Other</option>
+              </select>
+            </label>
+            <label>
+              Cloud type
+              <select name="cloudType">
+                <option value="public">Public</option>
+                <option value="private">Private</option>
+              </select>
+            </label>
+            <label>
+              Auth method
+              <input name="authMethod" placeholder="service_principal | api_key | service_account" />
+            </label>
+            <label>
+              Subscription / account / billing ID
+              <input name="accountId" placeholder="subscription/account/billing identifier" />
+            </label>
+            <label>
+              Project ID
+              <input name="projectId" placeholder="project id (GCP/private optional)" />
+            </label>
+            <label>
+              Credentials JSON
+              <textarea
+                name="credentials"
+                rows="7"
+                placeholder='Azure: {"tenantId":"...","clientId":"...","clientSecret":"...","subscriptionId":"..."}\nAWS: {"accessKeyId":"...","secretAccessKey":"..."}\nRackspace: {"username":"...","apiKey":"...","accountId":"..."}\nGCP: {"billingAccountId":"...","manualMonthlyCost":1000}'
+              ></textarea>
+            </label>
+            <button type="submit" class="btn primary">Save vendor</button>
+            <p class="muted">Credentials are encrypted at rest in CloudStudio DB.</p>
+          </form>
+          <div class="panel">
+            <h3>Configured vendors</h3>
+            <p class="muted">Export files include credentials. Store them securely.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Provider</th>
+                    <th>Type</th>
+                    <th>Auth</th>
+                    <th>Credentials</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="vendorsBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="admin-users">
+        <div class="view-head">
+          <h2>User access</h2>
+          <div class="inline-actions">
+            <button id="refreshAdminUsersBtn" class="btn secondary" type="button">Reload</button>
+          </div>
+        </div>
+        <div class="split">
+          <form id="adminUserForm" class="panel form-panel">
+            <h3 id="adminUserFormTitle">Add user</h3>
+            <p class="muted">Create users and control which tabs each user can access.</p>
+            <label>
+              Username
+              <input id="adminUserUsername" name="username" autocomplete="username" required />
+            </label>
+            <label>
+              Password
+              <input id="adminUserPassword" name="password" type="password" autocomplete="new-password" required />
+            </label>
+            <label class="check-inline">
+              <input id="adminUserIsAdmin" name="isAdmin" type="checkbox" />
+              <span>Admin user (full access)</span>
+            </label>
+            <div class="admin-permissions-wrap">
+              <p class="muted">Tab access</p>
+              <div id="adminUserPermissions" class="permission-grid"></div>
+            </div>
+            <div class="inline-actions">
+              <button id="adminUserSubmitBtn" type="submit" class="btn primary">Create user</button>
+              <button id="adminUserCancelBtn" type="button" class="btn secondary">Cancel edit</button>
+            </div>
+            <p id="adminUserFormStatus" class="muted"></p>
+          </form>
+          <div class="panel">
+            <h3>Configured users</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Tab access</th>
+                    <th>Updated</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody id="adminUsersBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="admin-api-keys">
+        <div class="view-head">
+          <h2>API key management</h2>
+          <div class="inline-actions">
+            <button id="createApiKeyBtn" class="btn primary" type="button">Create API key</button>
+          </div>
+        </div>
+        <div class="panel">
+          <p class="muted">Create and manage API keys for external integrations. Keys are shown in plaintext once at creation.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Prefix</th>
+                  <th>Created</th>
+                  <th>Last used</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="apiKeysBody"></tbody>
+            </table>
+          </div>
+          <p class="muted">New key appears once. Save it immediately in your secret manager.</p>
+          <p id="apiKeyOutput" class="code-pill"></p>
+        </div>
+      </section>
+
+      <section class="view" data-view="admin-backup">
+        <div class="view-head">
+          <h2>Backup</h2>
+          <div class="inline-actions">
+            <button id="refreshDbBackupConfigBtn" class="btn secondary" type="button">Reload backup config</button>
+          </div>
+        </div>
+        <form id="dbBackupForm" class="panel form-panel">
+          <h3>DB backup target (S3 compatible)</h3>
+          <p class="muted">Environment variables take priority. Missing env vars fall back to this saved admin config.</p>
+          <label class="check-inline">
+            <input id="dbBackupEnabled" name="enabled" type="checkbox" />
+            <span>Enable DB backup scheduler</span>
+          </label>
+          <div class="form-grid">
+            <label>
+              Bucket
+              <input id="dbBackupBucket" name="bucket" placeholder="cloudstudio-backups" />
+            </label>
+            <label>
+              Prefix
+              <input id="dbBackupPrefix" name="prefix" placeholder="cloudstudio-db-backups" />
+            </label>
+            <label>
+              Region
+              <input id="dbBackupRegion" name="region" placeholder="us-east-1" />
+            </label>
+            <label>
+              Endpoint
+              <input id="dbBackupEndpoint" name="endpoint" placeholder="https://s3.wasabisys.com" />
+            </label>
+            <label>
+              Access key ID
+              <input id="dbBackupAccessKeyId" name="accessKeyId" placeholder="AKIA..." />
+            </label>
+            <label>
+              Secret access key
+              <input id="dbBackupSecretAccessKey" name="secretAccessKey" type="password" placeholder="Leave blank to keep existing" />
+            </label>
+            <label>
+              Session token (optional)
+              <input id="dbBackupSessionToken" name="sessionToken" type="password" placeholder="Leave blank to keep existing" />
+            </label>
+            <label>
+              Interval (ms)
+              <input id="dbBackupIntervalMs" name="intervalMs" type="number" min="60000" step="1000" />
+            </label>
+            <label>
+              Retention days
+              <input id="dbBackupRetentionDays" name="retentionDays" type="number" min="1" max="3650" />
+            </label>
+            <label>
+              Lifecycle rule ID
+              <input id="dbBackupLifecycleRuleId" name="lifecycleRuleId" placeholder="cloudstudio-db-backup-retention" />
+            </label>
+            <label>
+              Temp dir
+              <input id="dbBackupTmpDir" name="tempDir" placeholder="./data/tmp-backups" />
+            </label>
+          </div>
+          <label class="check-inline">
+            <input id="dbBackupForcePathStyle" name="forcePathStyle" type="checkbox" />
+            <span>Force path-style S3 requests</span>
+          </label>
+          <label class="check-inline">
+            <input id="dbBackupRunOnStartup" name="runOnStartup" type="checkbox" />
+            <span>Run backup on app startup</span>
+          </label>
+          <label class="check-inline">
+            <input id="dbBackupApplyLifecycle" name="applyLifecycle" type="checkbox" />
+            <span>Apply/maintain lifecycle retention policy</span>
+          </label>
+          <label class="check-inline">
+            <input id="dbBackupClearAccessKeyId" name="clearAccessKeyId" type="checkbox" />
+            <span>Clear saved access key ID</span>
+          </label>
+          <label class="check-inline">
+            <input id="dbBackupClearSecretAccessKey" name="clearSecretAccessKey" type="checkbox" />
+            <span>Clear saved secret access key</span>
+          </label>
+          <label class="check-inline">
+            <input id="dbBackupClearSessionToken" name="clearSessionToken" type="checkbox" />
+            <span>Clear saved session token</span>
+          </label>
+          <div class="inline-actions">
+            <button id="saveDbBackupConfigBtn" class="btn primary" type="submit">Save backup config</button>
+            <button id="runDbBackupNowBtn" class="btn secondary" type="button">Run backup now</button>
+          </div>
+          <p id="dbBackupConfigStatus" class="muted"></p>
+          <p id="dbBackupRuntimeStatus" class="muted"></p>
+        </form>
+      </section>
+
+      <section class="view" data-view="storage">
+        <div class="view-head">
+          <h2>Storage</h2>
+        </div>
+        <div class="panel storage-shell-panel">
+          <div id="storageEmbedRoot" class="storage-embed loading-state" data-theme="gray">
+            <p class="muted">Loading storage workspace...</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="ip-address">
+        <div class="view-head">
+          <h2>IP Address</h2>
+          <div class="inline-actions">
+            <button id="saveIpMapBtn" class="btn primary" type="button">Save map</button>
+            <button id="reloadIpMapBtn" class="btn secondary" type="button">Reload</button>
+            <button id="exportIpMapBtn" class="btn secondary" type="button">Export CSV</button>
+          </div>
+        </div>
+        <div class="panel">
+          <p class="muted">Global IP address mapping shared across CloudStudio modules. Format: <code>IP, Server name</code> one per line.</p>
+          <label class="modal-label">
+            <span class="muted">Mappings</span>
+            <textarea id="ipMapInput" rows="12" placeholder="1.1.1.1, CloudFlare&#10;8.8.8.8, Google"></textarea>
+          </label>
+          <p id="ipMapStatus" class="muted"></p>
+        </div>
+        <div class="panel ip-discovery-panel">
+          <div class="ip-discovery-head">
+            <div>
+              <h3>Discovered unmapped IPs</h3>
+              <p class="muted">Scan VSAx and cloud provider data already ingested in CloudStudio, then inherit individual IPs into the map.</p>
+            </div>
+            <div class="inline-actions ip-discovery-actions">
+              <label class="range-inline ip-discovery-search-label">
+                <span>Search</span>
+                <input id="ipDiscoverySearchInput" type="text" placeholder="IP, provider, source, server" />
+              </label>
+              <button id="scanIpDiscoveryBtn" class="btn secondary" type="button">Scan unmapped IPs</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="billing-detail-table ip-discovery-table">
+              <thead>
+                <tr>
+                  <th>IP address</th>
+                  <th>Suggested system name</th>
+                  <th>Providers</th>
+                  <th>Sources</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="ipDiscoveryBody">
+                <tr>
+                  <td colspan="5" class="muted">Click "Scan unmapped IPs" to discover candidates.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p id="ipDiscoveryStatus" class="muted"></p>
+        </div>
+      </section>
+
+      <section class="view" data-view="pricing">
+        <div class="view-head">
+          <h2>Pricing calculator</h2>
+        </div>
+        <div class="panel pricing-shell-panel">
+          <div id="pricingEmbedRoot" class="pricing-embed loading-state" data-theme="dark">
+            <p class="muted">Loading pricing workspace...</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="billing">
+        <div class="view-head billing-view-head">
+          <div class="billing-head-left">
+            <h2>Billing</h2>
+            <div id="billingRangePresets" class="billing-range-presets" role="group" aria-label="Billing range presets">
+              <button type="button" class="btn secondary billing-preset-btn" data-billing-preset="last_month">Last month</button>
+              <button type="button" class="btn secondary billing-preset-btn" data-billing-preset="3_months">3 months</button>
+              <button type="button" class="btn secondary billing-preset-btn" data-billing-preset="6_months">6 months</button>
+              <button type="button" class="btn secondary billing-preset-btn" data-billing-preset="1_year">1 year</button>
+            </div>
+          </div>
+          <div class="billing-head-right">
+            <div class="billing-head-right-controls">
+              <label class="range-inline">
+                <span>From</span>
+                <input id="billingRangeStart" type="date" />
+              </label>
+              <label class="range-inline">
+                <span>To</span>
+                <input id="billingRangeEnd" type="date" />
+              </label>
+              <button id="refreshBillingBtn" class="btn secondary">Refresh</button>
+              <button id="exportBillingBtn" class="btn secondary">Export CSV</button>
+            </div>
+            <span id="billingSyncStatus" class="inline-status billing-sync-status muted" aria-live="polite"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <h3 id="billingSummaryTitle">Provider/account totals</h3>
+          <div id="billingTotalsCards" class="cards"></div>
+          <div id="billingBudgetStatusPanel" class="billing-budget-panel">
+            <div class="billing-org-head">
+              <h4>Budget status (accounts)</h4>
+              <p id="billingBudgetStatusHint" class="muted">
+                Under/over budget for selected period based on Jan-Dec account budget plans.
+              </p>
+            </div>
+            <div id="billingBudgetStatusCards" class="cards billing-budget-status-cards">
+              <article class="card">
+                <p class="label">Budget status</p>
+                <p class="value">-</p>
+                <p class="muted">No account budget configured yet.</p>
+              </article>
+            </div>
+          </div>
+          <div class="billing-org-panel">
+            <div class="billing-org-head">
+              <h4>Org totals (from tags)</h4>
+              <p id="billingOrgTotalsHint" class="muted">Calculated from <code>org</code> tag on billing line items.</p>
+            </div>
+            <div id="billingOrgTotalsCards" class="cards billing-org-cards">
+              <article class="card">
+                <p class="label">Org totals</p>
+                <p class="value">-</p>
+              </article>
+            </div>
+          </div>
+          <div class="billing-org-panel">
+            <div class="billing-org-head">
+              <h4>Product totals (from tags)</h4>
+              <p id="billingProductTotalsHint" class="muted">Calculated from <code>product</code> tag on billing line items.</p>
+            </div>
+            <div id="billingProductTotalsCards" class="cards billing-org-cards">
+              <article class="card">
+                <p class="label">Product totals</p>
+                <p class="value">-</p>
+              </article>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Account name</th>
+                  <th>Account ID</th>
+                  <th>Total</th>
+                  <th>Currency</th>
+                  <th>Snapshots</th>
+                </tr>
+              </thead>
+              <tbody id="billingAccountSummaryBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="billingTrendPanel" class="panel billing-trend-panel">
+          <div class="panel-collapse-head billing-trend-header">
+            <h3>Spending trend</h3>
+            <div class="inline-actions billing-trend-header-right">
+              <p id="billingTrendSummary" class="muted">Select more than one month to see trend.</p>
+              <button id="toggleBillingTrendBtn" type="button" class="btn secondary panel-collapse-btn" aria-expanded="false">Show trend</button>
+            </div>
+          </div>
+          <div id="billingTrendWrap" class="panel-collapsible collapsed">
+            <div class="billing-trend-chart-wrap">
+              <svg id="billingTrendChart" class="billing-trend-chart" viewBox="0 0 480 120" preserveAspectRatio="none" aria-label="Billing trend chart"></svg>
+            </div>
+            <p id="billingTrendFootnote" class="muted"></p>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Billing by resource type</h3>
+          <p id="billingScopeHint" class="muted">Grouped provider billing across the selected period.</p>
+          <div class="inline-actions billing-type-controls">
+            <label class="range-inline">
+              <span>Provider</span>
+              <select id="billingTypeProviderFilter">
+                <option value="all">All providers</option>
+              </select>
+            </label>
+            <label class="range-inline">
+              <span>Bill type</span>
+              <select id="billingTypeResourceFilter">
+                <option value="all">All bill types</option>
+              </select>
+            </label>
+            <label class="range-inline">
+              <span>Tag</span>
+              <select id="billingTypeTagFilter">
+                <option value="all">All tags</option>
+                <option value="tagged">Tagged only</option>
+                <option value="untagged">Untagged only</option>
+                <option value="org_null">org = null</option>
+              </select>
+            </label>
+            <label class="range-inline billing-search-inline">
+              <span>Search</span>
+              <input
+                id="billingSearchInput"
+                type="search"
+                placeholder="firewall, device, account, or resource ref"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <label class="range-inline">
+              <span>Sort</span>
+              <select id="billingTypeSort">
+                <option value="amount_desc">Highest cost</option>
+                <option value="amount_asc">Lowest cost</option>
+                <option value="untagged_desc">Untagged first</option>
+                <option value="type_asc">Type A to Z</option>
+                <option value="type_desc">Type Z to A</option>
+                <option value="provider_asc">Provider A to Z</option>
+                <option value="provider_desc">Provider Z to A</option>
+              </select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Provider</th>
+                  <th>Resource type</th>
+                  <th>Amount</th>
+                  <th>Currency</th>
+                  <th>Provider share</th>
+                  <th>Rows</th>
+                </tr>
+              </thead>
+              <tbody id="billingResourceBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-collapse-head">
+            <h3>Billing snapshots</h3>
+            <button id="toggleBillingSnapshotsBtn" type="button" class="btn secondary panel-collapse-btn" aria-expanded="false">Show snapshots</button>
+          </div>
+          <div id="billingSnapshotsWrap" class="panel-collapsible collapsed">
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Pulled at</th>
+                    <th>Provider</th>
+                    <th>Period</th>
+                    <th>Amount</th>
+                    <th>Currency</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody id="billingBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="billing-budget">
+        <div class="view-head">
+          <h2>Billing budget</h2>
+          <div class="inline-actions">
+            <label class="range-inline">
+              <span>Year</span>
+              <input id="billingBudgetYear" type="number" min="2000" max="9999" step="1" />
+            </label>
+            <button id="refreshBillingBudgetBtn" class="btn secondary" type="button">Load</button>
+            <button id="saveBillingBudgetBtn" class="btn primary" type="button">Save budgets</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Account budgets (Jan to Dec)</h3>
+          <p id="billingBudgetStatus" class="muted">
+            Set monthly budget per account. Budget model already supports future monthly org and product targets.
+          </p>
+          <div class="table-wrap">
+            <table class="billing-budget-table">
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Account name</th>
+                  <th>Account ID</th>
+                  <th>Currency</th>
+                  <th>Jan</th>
+                  <th>Feb</th>
+                  <th>Mar</th>
+                  <th>Apr</th>
+                  <th>May</th>
+                  <th>Jun</th>
+                  <th>Jul</th>
+                  <th>Aug</th>
+                  <th>Sep</th>
+                  <th>Oct</th>
+                  <th>Nov</th>
+                  <th>Dec</th>
+                  <th>Annual</th>
+                </tr>
+              </thead>
+              <tbody id="billingBudgetBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="billing-backfill">
+        <div class="view-head">
+          <h2>Billing Backfill</h2>
+          <div class="inline-actions">
+            <button id="refreshBillingBackfillStatusBtn" class="btn secondary" type="button">Refresh status</button>
+          </div>
+        </div>
+        <div class="split">
+          <div class="panel form-panel">
+            <h3>Start provider backfill</h3>
+            <label>
+              Provider
+              <select id="billingBackfillProvider">
+                <option value="all">All providers</option>
+                <option value="azure">Azure</option>
+                <option value="aws">AWS</option>
+                <option value="gcp">GCP</option>
+                <option value="wasabi">WASABI-WACM</option>
+                <option value="wasabi-main">WASABI-MAIN</option>
+                <option value="rackspace">Rackspace</option>
+              </select>
+            </label>
+            <label>
+              Lookback window
+              <select id="billingBackfillMonths">
+                <option value="12">Last 12 months</option>
+                <option value="24">Last 24 months</option>
+                <option value="48" selected>Last 48 months</option>
+              </select>
+            </label>
+            <label>
+              Sync mode
+              <select id="billingBackfillOnlyMissing">
+                <option value="true">Only missing months</option>
+                <option value="false">Re-pull all months</option>
+              </select>
+            </label>
+            <label>
+              Delay between API calls (ms)
+              <input id="billingBackfillDelayMs" type="number" min="0" max="12000" step="100" value="1200" />
+            </label>
+            <label>
+              Retry attempts per vendor/month
+              <input id="billingBackfillRetries" type="number" min="1" max="8" step="1" value="4" />
+            </label>
+            <button id="startBillingBackfillBtn" class="btn primary" type="button">Start backfill</button>
+            <p class="muted">Use this only when you need historical billing reloads. Daily billing sync runs automatically every 24 hours.</p>
+          </div>
+          <div class="panel">
+            <h3>Backfill status</h3>
+            <div id="billingBackfillSummary" class="cards"></div>
+            <p id="billingBackfillStateText" class="muted">No backfill has been started yet.</p>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Vendor</th>
+                    <th>Provider</th>
+                    <th>Period</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody id="billingBackfillFailuresBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="tags">
+        <div class="view-head">
+          <h2>Tags</h2>
+          <div class="inline-actions">
+            <button id="syncAwsTagsBtn" class="btn secondary" type="button">Sync AWS tags</button>
+            <button id="refreshTagsBtn" class="btn secondary" type="button">Refresh</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Cloud resource tags</h3>
+          <p class="muted">Tags discovered from billing expansion rows and synchronized where provider APIs support it.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Resource reference</th>
+                  <th>Account</th>
+                  <th>Tags</th>
+                  <th>Source</th>
+                  <th>Updated</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="tagsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="cloud-metrics">
+        <div class="view-head">
+          <h2>Cloud metrics</h2>
+          <div class="inline-actions">
+            <button id="refreshCloudMetricsBtn" class="btn secondary">Refresh</button>
+            <span id="cloudMetricsSyncStatus" class="inline-status"></span>
+          </div>
+        </div>
+        <div class="panel">
+          <div id="cloudMetricsProviderTabs" class="billing-range-presets cloud-metrics-provider-tabs"></div>
+          <p id="cloudMetricsScopeHint" class="muted">Provider metrics synced every 5 minutes. Azure is active now.</p>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="billing-expand-cell"></th>
+                  <th>Resource type</th>
+                  <th>Resources</th>
+                  <th>Metrics</th>
+                  <th>Last sync</th>
+                </tr>
+              </thead>
+              <tbody id="cloudMetricsTypeBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="live">
+        <div class="view-head">
+          <h2>Live View (VSAx)</h2>
+          <button id="refreshLiveBtn" class="btn secondary">Refresh</button>
+        </div>
+        <div class="panel">
+          <div class="live-toolbar">
+            <label class="live-filter">
+              Search
+              <input id="liveSearchInput" type="search" placeholder="Search device, group, IP, status, notes" />
+            </label>
+            <label id="liveGroupFilterWrap" class="live-filter">
+              VSAx group
+              <select id="liveGroupFilter">
+                <option value="all">All groups</option>
+              </select>
+            </label>
+            <button id="clearLiveFiltersBtn" type="button" class="btn secondary">Clear</button>
+            <span id="liveScopeHint" class="inline-status muted">Loading VSAx live data...</span>
+          </div>
+          <div class="table-wrap live-table-wrap">
+            <table class="live-table">
+              <thead>
+                <tr>
+                  <th>Group</th>
+                  <th>Resource</th>
+                  <th>CPU</th>
+                  <th>Memory</th>
+                  <th>Disk</th>
+                  <th>Internal IP</th>
+                  <th>Public IP</th>
+                  <th>Status</th>
+                  <th>Updated at</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody id="liveBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="security">
+        <div class="view-head">
+          <h2>Security posture</h2>
+          <button id="refreshSecurityBtn" class="btn secondary">Refresh</button>
+        </div>
+        <div class="panel">
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Provider</th>
+                  <th>Severity</th>
+                  <th>Resource</th>
+                  <th>Rule</th>
+                  <th>Status</th>
+                  <th>Observed</th>
+                </tr>
+              </thead>
+              <tbody id="securityBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="view" data-view="apidocs">
+        <div class="view-head">
+          <h2>API docs</h2>
+        </div>
+        <div class="panel">
+          <h3>How to use CloudStudio API</h3>
+          <p>Public endpoints require <code>x-api-key</code> header. Create keys in <strong>Admin → API keys</strong>, then call any endpoint under <code>/api/public/*</code>.</p>
+          <pre><code>curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/overview
+curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/billing
+curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/cloud-metrics?provider=azure
+curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/cloud-metrics?provider=aws
+curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/cloud-metrics?provider=rackspace
+curl -H "x-api-key: YOUR_KEY" "http://localhost:9090/api/public/cloud-metrics/resources?provider=aws&limit=500"
+curl -H "x-api-key: YOUR_KEY" http://localhost:9090/api/public/security</code></pre>
+          <p>Core private APIs for UI and integrations:</p>
+          <ul>
+            <li><code>GET /api/vendors</code>, <code>POST /api/vendors</code>, <code>PUT /api/vendors/:id</code>, <code>DELETE /api/vendors/:id</code></li>
+            <li><code>GET /api/vendors/export</code>, <code>GET /api/vendors/:id/export</code>, <code>POST /api/vendors/import</code>, <code>POST /api/vendors/:id/import</code></li>
+            <li><code>GET /api/billing</code>, <code>GET /api/billing/accounts</code>, <code>GET /api/billing/auto-sync-status</code>, <code>GET /api/billing/export/csv</code> for billing totals, export, and scheduled sync status</li>
+            <li><code>POST /api/billing/backfill</code>, <code>POST /api/billing/backfill/ensure</code>, <code>GET /api/billing/backfill/status</code> for historical billing backfill jobs</li>
+            <li><code>GET /api/tags</code>, <code>POST /api/tags/resolve</code>, <code>POST /api/tags/sync/aws</code>, <code>PUT /api/tags</code> for resource tag sync and updates</li>
+            <li><code>POST /api/platform/pricing/compare</code> for calculator requests</li>
+            <li><code>GET /api/platform/overview|cloud-metrics|cloud-metrics/providers|live|security</code> for unified dashboards</li>
+          </ul>
+          <p class="muted">Public docs are also available without login at <code>/api</code>.</p>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" aria-live="polite"></div>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

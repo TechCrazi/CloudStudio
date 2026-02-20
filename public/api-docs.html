@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CloudStudio API</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+        background: radial-gradient(1200px 800px at 10% 0%, #11293f 0%, #06111d 45%, #040b12 100%);
+        color: #d9e5f2;
+        min-height: 100vh;
+      }
+      .wrap {
+        max-width: 1080px;
+        margin: 0 auto;
+        padding: 32px 20px 52px;
+      }
+      h1,
+      h2,
+      h3 {
+        margin: 0 0 12px;
+        font-family: "Sora", "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
+      }
+      h1 {
+        font-size: 2rem;
+      }
+      h2 {
+        font-size: 1.2rem;
+        margin-top: 24px;
+      }
+      p {
+        margin: 0 0 14px;
+        line-height: 1.45;
+        color: #b7c8da;
+      }
+      .panel {
+        border: 1px solid rgba(94, 132, 170, 0.35);
+        border-radius: 12px;
+        background: rgba(9, 20, 32, 0.82);
+        padding: 18px;
+        margin-top: 16px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        color: #b8e8ff;
+      }
+      pre {
+        margin: 12px 0 0;
+        padding: 12px;
+        border-radius: 10px;
+        background: rgba(2, 8, 14, 0.95);
+        border: 1px solid rgba(94, 132, 170, 0.3);
+        overflow-x: auto;
+      }
+      ul {
+        margin: 8px 0 0;
+        padding-left: 20px;
+      }
+      li {
+        margin: 7px 0;
+      }
+      a {
+        color: #8dd8ff;
+      }
+      .muted {
+        font-size: 0.95rem;
+        color: #9bb2ca;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>CloudStudio API</h1>
+      <p>Unified API access for overview, billing, cloud metrics, security, and platform integrations.</p>
+
+      <section class="panel">
+        <h2>Authentication</h2>
+        <p>Public API endpoints require <code>x-api-key</code>. Create and manage keys in CloudStudio under <strong>Admin → API keys</strong>.</p>
+        <p class="muted">Admin UI: <a href="/login">sign in</a>, then open the Admin menu in CloudStudio.</p>
+      </section>
+
+      <section class="panel">
+        <h2>Public Endpoints</h2>
+        <p>Base path: <code>/api/public/*</code></p>
+        <pre><code>curl -H "x-api-key: YOUR_KEY" https://example.com/api/public/overview
+curl -H "x-api-key: YOUR_KEY" https://example.com/api/public/billing
+curl -H "x-api-key: YOUR_KEY" "https://example.com/api/public/cloud-metrics?provider=azure"
+curl -H "x-api-key: YOUR_KEY" "https://example.com/api/public/cloud-metrics?provider=aws"
+curl -H "x-api-key: YOUR_KEY" "https://example.com/api/public/cloud-metrics?provider=rackspace"
+curl -H "x-api-key: YOUR_KEY" "https://example.com/api/public/cloud-metrics/resources?provider=aws&limit=500"
+curl -H "x-api-key: YOUR_KEY" https://example.com/api/public/security</code></pre>
+      </section>
+
+      <section class="panel">
+        <h2>Core Private API (App/Auth Required)</h2>
+        <ul>
+          <li><code>GET/POST/PUT/DELETE /api/vendors</code></li>
+          <li><code>GET /api/billing</code>, <code>GET /api/billing/accounts</code>, <code>GET /api/billing/export/csv</code></li>
+          <li><code>POST /api/billing/backfill</code>, <code>POST /api/billing/backfill/ensure</code>, <code>GET /api/billing/backfill/status</code></li>
+          <li><code>GET /api/tags</code>, <code>POST /api/tags/resolve</code>, <code>POST /api/tags/sync/aws</code>, <code>PUT /api/tags</code></li>
+          <li><code>POST /api/platform/pricing/compare</code></li>
+          <li><code>GET /api/platform/overview</code>, <code>/cloud-metrics</code>, <code>/cloud-metrics/providers</code>, <code>/live</code>, <code>/security</code></li>
+        </ul>
+      </section>
+    </main>
+  </body>
+</html>

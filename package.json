@@ -1,0 +1,29 @@
+{
+  "name": "cloudstudio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Unified CloudStudio control plane for pricing, billing, utilization, live metrics, and security across providers.",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "db:merge": "node scripts/merge-master-db.js"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cloudwatch": "^3.991.0",
+    "@aws-sdk/client-cost-explorer": "^3.991.0",
+    "@aws-sdk/client-efs": "^3.991.0",
+    "@aws-sdk/client-pricing": "^3.524.0",
+    "@aws-sdk/client-resource-groups-tagging-api": "^3.991.0",
+    "@aws-sdk/client-s3": "^3.991.0",
+    "better-sqlite3": "^12.2.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.3.1",
+    "node-fetch": "^3.3.2",
+    "undici": "^7.16.0"
+  }
+}

@@ -1,0 +1,2415 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cloud Price Studio</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="background">
+      <div class="orb orb--one"></div>
+      <div class="orb orb--two"></div>
+      <div class="grain"></div>
+    </div>
+    <main class="app">
+      <section class="top-shell">
+        <header class="hero">
+          <span class="badge">Cloud Price Studio</span>
+          <h1>Compare VM and Kubernetes pricing across AWS, Azure, and GCP.</h1>
+          <p>
+            Windows-only pricing with a selectable disk tier and a 10+ Gbps
+            network floor. Use the tabs to switch between VM sizing and managed
+            Kubernetes estimates, then compare monthly totals across AWS, Azure,
+            and GCP.
+          </p>
+        </header>
+        <section class="auth-shell">
+          <div class="auth-row">
+            <span class="auth-status" id="auth-status">
+              Guest mode: using browser-only temporary storage.
+            </span>
+            <div class="auth-actions">
+              <button type="button" class="secondary-btn" id="auth-open-login">
+                Log In
+              </button>
+              <button
+                type="button"
+                class="secondary-btn is-hidden"
+                id="auth-import-guest"
+              >
+                Import Guest Data
+              </button>
+              <button
+                type="button"
+                class="secondary-btn is-hidden"
+                id="auth-save-db"
+              >
+                Save to DB
+              </button>
+              <button
+                type="button"
+                class="secondary-btn is-hidden"
+                id="auth-logout"
+              >
+                Log Out
+              </button>
+            </div>
+          </div>
+          <form class="auth-form is-hidden" id="auth-form" autocomplete="off">
+            <label>
+              Username
+              <input type="text" id="auth-username" name="username" />
+            </label>
+            <label>
+              Password
+              <input type="password" id="auth-password" name="password" />
+            </label>
+            <button type="submit" class="secondary-btn" id="auth-login">
+              Sign In
+            </button>
+          </form>
+          <p class="form-note auth-note" id="auth-note"></p>
+        </section>
+      </section>
+      <div class="mode-tabs">
+        <button type="button" class="mode-tab active" data-mode="vm">
+          VM
+        </button>
+        <button type="button" class="mode-tab" data-mode="k8s">
+          K8s
+        </button>
+        <button type="button" class="mode-tab" data-mode="network">
+          Networking
+        </button>
+        <button type="button" class="mode-tab" data-mode="storage">
+          Storage
+        </button>
+        <button type="button" class="mode-tab" data-mode="saved">
+          Saved Compare
+        </button>
+        <button type="button" class="mode-tab" data-mode="vsax-compare">
+          Price Compare VSAx
+        </button>
+        <button type="button" class="mode-tab" data-mode="private">
+          Private Cloud
+        </button>
+        <button type="button" class="mode-tab" data-mode="scenarios">
+          Private/Public Cloud
+        </button>
+        <button type="button" class="mode-tab" data-mode="data-transfer">
+          User Data
+        </button>
+        <button
+          type="button"
+          class="mode-tab mode-tab--end is-hidden"
+          data-mode="admin"
+          id="admin-mode-tab"
+        >
+          Admin
+        </button>
+      </div>
+      <section class="layout">
+        <form id="pricing-form" class="card form-card">
+          <input type="hidden" name="mode" id="mode-input" value="vm" />
+          <input
+            type="hidden"
+            name="pricingFocus"
+            id="pricing-focus"
+            value="all"
+          />
+          <input
+            type="hidden"
+            name="networkAddonFocus"
+            id="network-addon-focus"
+            value="vpc"
+          />
+          <div class="card-header">
+            <h2 id="form-title">Workload inputs</h2>
+            <p id="form-subtitle">
+              Windows only, no local or temp disks, disk tier selectable,
+              network >= 10 Gbps.
+            </p>
+          </div>
+          <div class="form-grid">
+            <div class="input-panel" id="cloud-panel">
+            <label id="workload-field">
+              Workload profile
+              <select name="workload" id="workload-select">
+                <option value="general">General purpose</option>
+                <option value="sql">SQL Server</option>
+                <option value="web">Web Server</option>
+              </select>
+            </label>
+            <label>
+              <span id="cpu-label">CPU cores (min 8)</span>
+              <select name="cpu" id="cpu-select"></select>
+            </label>
+            <label>
+              <span id="vm-count-label">VM count</span>
+              <input
+                type="number"
+                name="vmCount"
+                min="1"
+                step="1"
+                value="1"
+              />
+            </label>
+            <label>
+              Region group
+              <select name="regionKey">
+                <option value="us-east">US East (N. Virginia / East US)</option>
+                <option value="us-central">
+                  US Central (Ohio / Central US / Iowa)
+                </option>
+                <option value="us-west">US West (Oregon / West US 2)</option>
+                <option value="us-west-1">
+                  US West (N. California / West US / Los Angeles)
+                </option>
+                <option value="ca-central">
+                  Canada Central (Canada (Central) / Canada Central / Montreal)
+                </option>
+                <option value="eu-west">EU West (Ireland / West Europe)</option>
+                <option value="eu-central">
+                  EU Central (Frankfurt / Germany West Central)
+                </option>
+                <option value="eu-uk">UK South (London)</option>
+                <option value="eu-north">EU North (Stockholm / North Europe)</option>
+                <option value="ap-sg">
+                  Asia Pacific (Singapore / Southeast Asia)
+                </option>
+                <option value="ap-jp">Japan East (Tokyo)</option>
+                <option value="ap-in">India Central (Mumbai)</option>
+                <option value="ap-au">
+                  Australia (Sydney / Australia East)
+                </option>
+                <option value="sa-east">South America (Sao Paulo)</option>
+                <option value="af-south">
+                  Africa South (Cape Town / Johannesburg)
+                </option>
+              </select>
+            </label>
+            <label id="sql-edition-field">
+              SQL edition
+              <select name="sqlEdition">
+                <option value="none">None</option>
+                <option value="standard">MS SQL Standard</option>
+                <option value="enterprise">MS SQL Enterprise</option>
+              </select>
+            </label>
+            <label>
+              Price provider
+              <select name="pricingProvider">
+                <option value="retail">Retail (Vantage)</option>
+                <option value="api">API (cloud provider)</option>
+              </select>
+            </label>
+            <label>
+              Disk tier
+              <select name="diskTier" id="disk-tier-select">
+                <option value="max" selected>
+                  Max performance (Ultra/Extreme/io2 BE)
+                </option>
+                <option value="premium">Premium SSD</option>
+              </select>
+            </label>
+            <label>
+              <span id="os-disk-label">OS disk (GB)</span>
+              <input
+                type="number"
+                name="osDiskGb"
+                min="0"
+                step="1"
+                value="256"
+              />
+            </label>
+            <label>
+              <span id="data-disk-label">Data disk (TB)</span>
+              <input
+                type="number"
+                name="dataDiskTb"
+                min="0"
+                step="0.01"
+                value="1"
+              />
+            </label>
+            <div class="form-section" id="storage-rate-section">
+              Shared storage rates (object storage)
+            </div>
+            <div id="storage-rate-fields">
+              <label>
+                AWS S3 ($/TB-month)
+                <input
+                  type="number"
+                  name="awsObjectStorageRate"
+                  min="0"
+                  step="0.01"
+                  value="0"
+                />
+              </label>
+              <label>
+                Azure Blob ($/TB-month)
+                <input
+                  type="number"
+                  name="azureObjectStorageRate"
+                  min="0"
+                  step="0.01"
+                  value="0"
+                />
+              </label>
+              <label>
+                GCP Storage ($/TB-month)
+                <input
+                  type="number"
+                  name="gcpObjectStorageRate"
+                  min="0"
+                  step="0.01"
+                  value="0"
+                />
+              </label>
+            </div>
+            <label class="checkbox-field">
+              <input type="checkbox" name="backupEnabled" />
+              <span>Enable backups (15-day retention, 10% daily delta)</span>
+            </label>
+            <label>
+              <span id="egress-label">Egress (TB / month)</span>
+              <input
+                type="number"
+                name="egressTb"
+                min="0"
+                step="0.1"
+                value="1"
+              />
+            </label>
+            <label id="inter-vlan-field">
+              Inter-VLAN transfer (TB / month)
+              <input
+                type="number"
+                name="interVlanTb"
+                min="0"
+                step="0.1"
+                value="0"
+              />
+            </label>
+            <label id="intra-vlan-field">
+              Intra-VLAN transfer (TB / month)
+              <input
+                type="number"
+                name="intraVlanTb"
+                min="0"
+                step="0.1"
+                value="0"
+              />
+            </label>
+            <label id="inter-region-field">
+              Inter-region transfer (TB / month)
+              <input
+                type="number"
+                name="interRegionTb"
+                min="0"
+                step="0.1"
+                value="0"
+              />
+            </label>
+            <label id="storage-iops-field">
+              Provisioned IOPS
+              <input
+                type="number"
+                name="storageIops"
+                min="0"
+                step="1"
+                value="0"
+              />
+            </label>
+            <label id="storage-throughput-field">
+              Provisioned throughput (MBps)
+              <input
+                type="number"
+                name="storageThroughputMbps"
+                min="0"
+                step="1"
+                value="0"
+              />
+            </label>
+            <label id="storage-request-field">
+              Storage requests (million ops / month)
+              <input
+                type="number"
+                name="storageRequestUnitsMillion"
+                min="0"
+                step="0.1"
+                value="0"
+              />
+            </label>
+            <label id="storage-operation-field">
+              Storage write/tx units (million / month)
+              <input
+                type="number"
+                name="storageOperationUnitsMillion"
+                min="0"
+                step="0.1"
+                value="0"
+              />
+            </label>
+            <div class="form-section" id="network-section">Network add-ons</div>
+            <div class="network-addon-tabs is-hidden" id="network-addon-tabs">
+              <button
+                type="button"
+                class="network-addon-tab active"
+                data-network-focus="vpc"
+              >
+                VPC
+              </button>
+              <button
+                type="button"
+                class="network-addon-tab"
+                data-network-focus="firewall"
+              >
+                Firewall
+              </button>
+              <button
+                type="button"
+                class="network-addon-tab"
+                data-network-focus="loadBalancer"
+              >
+                Load balancer
+              </button>
+            </div>
+            <div id="network-fields">
+              <div class="network-addon-group" data-network-addon="vpc">
+                <label>
+                  AWS VPC
+                  <select name="awsVpcFlavor" id="aws-vpc-flavor"></select>
+                </label>
+                <label>
+                  Azure VNet
+                  <select
+                    name="azureVpcFlavor"
+                    id="azure-vnet-flavor"
+                  ></select>
+                </label>
+                <label>
+                  GCP VPC
+                  <select
+                    name="gcpVpcFlavor"
+                    id="gcp-vpc-flavor"
+                  ></select>
+                </label>
+              </div>
+              <div class="network-addon-group" data-network-addon="firewall">
+                <label>
+                  AWS firewall
+                  <select
+                    name="awsFirewallFlavor"
+                    id="aws-firewall-flavor"
+                  ></select>
+                </label>
+                <label>
+                  Azure firewall
+                  <select
+                    name="azureFirewallFlavor"
+                    id="azure-firewall-flavor"
+                  ></select>
+                </label>
+                <label>
+                  GCP firewall
+                  <select
+                    name="gcpFirewallFlavor"
+                    id="gcp-firewall-flavor"
+                  ></select>
+                </label>
+              </div>
+              <div
+                class="network-addon-group"
+                data-network-addon="loadBalancer"
+              >
+                <label>
+                  AWS load balancer
+                  <select
+                    name="awsLoadBalancerFlavor"
+                    id="aws-lb-flavor"
+                  ></select>
+                </label>
+                <label>
+                  Azure load balancer
+                  <select
+                    name="azureLoadBalancerFlavor"
+                    id="azure-lb-flavor"
+                  ></select>
+                </label>
+                <label>
+                  GCP load balancer
+                  <select
+                    name="gcpLoadBalancerFlavor"
+                    id="gcp-lb-flavor"
+                  ></select>
+                </label>
+              </div>
+            </div>
+            <label>
+              DR uplift (% of compute + storage + SQL)
+              <input
+                type="number"
+                name="drPercent"
+                min="0"
+                step="1"
+                value="0"
+              />
+            </label>
+            <label>
+              Hours / month
+              <input
+                type="number"
+                name="hours"
+                min="1"
+                step="1"
+                value="730"
+              />
+            </label>
+            <label id="sql-rate-field">
+              SQL license add-on ($/vCPU-hour)
+              <input
+                type="number"
+                name="sqlLicenseRate"
+                min="0"
+                step="0.01"
+                value="0"
+              />
+            </label>
+            <div class="form-section">Scenarios</div>
+            <label>
+              Scenario name
+              <input
+                type="text"
+                id="scenario-name"
+                placeholder="Prod baseline"
+              />
+            </label>
+            <label>
+              Saved scenarios
+              <select id="scenario-list"></select>
+            </label>
+            <div class="scenario-actions">
+              <button type="button" class="secondary-btn" id="save-scenario">
+                Save
+              </button>
+              <button type="button" class="secondary-btn" id="load-scenario">
+                Load
+              </button>
+              <button type="button" class="secondary-btn" id="clone-scenario">
+                Clone
+              </button>
+              <button type="button" class="secondary-btn" id="compare-scenario">
+                Compare
+              </button>
+              <button type="button" class="secondary-btn" id="delete-scenario">
+                Delete
+              </button>
+            </div>
+            <p id="scenario-note" class="form-note scenario-note"></p>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="primary-btn">Compare pricing</button>
+            <button type="button" class="secondary-btn" id="export-csv">
+              Export CSV
+            </button>
+          </div>
+          <p id="form-note" class="form-note"></p>
+        </form>
+        <section class="card results-card">
+          <div class="card-header">
+            <h2 id="results-title">Price comparison</h2>
+            <p id="results-subtitle">
+              Live compute rates + estimated storage, egress, and SQL.
+            </p>
+          </div>
+          <div class="results-tabs" id="results-tabs">
+            <button
+              type="button"
+              class="results-tab active"
+              data-results="pricing"
+            >
+              Pricing
+            </button>
+            <button type="button" class="results-tab" data-results="insight">
+              Insight
+            </button>
+            <button type="button" class="results-tab" data-results="commit">
+              Cloud Commit
+            </button>
+          </div>
+          <div class="results-panel" id="pricing-panel">
+            <div class="focus-panel is-hidden" id="network-focus-panel">
+              <div class="focus-tabs">
+                <button
+                  type="button"
+                  class="focus-tab active"
+                  data-network-result="vpc"
+                >
+                  VPC
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-network-result="gateway"
+                >
+                  VPC/VPN gateway
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-network-result="loadBalancer"
+                >
+                  Load balancer
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-network-result="insight"
+                >
+                  Insight
+                </button>
+              </div>
+              <div
+                class="focus-insight is-hidden"
+                id="network-focus-insight"
+              >
+                <div class="insight-chart" id="network-insight-chart"></div>
+                <p class="form-note" id="network-insight-note"></p>
+              </div>
+              <div class="focus-provider-grid" id="network-provider-cards"></div>
+              <div class="focus-table-wrap" id="network-focus-table"></div>
+            </div>
+            <div class="focus-panel is-hidden" id="storage-focus-panel">
+              <div class="focus-tabs">
+                <button
+                  type="button"
+                  class="focus-tab active"
+                  data-storage-result="object"
+                >
+                  Object Storage
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-storage-result="performance"
+                >
+                  Replication / DR
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-storage-result="insight"
+                >
+                  Insight
+                </button>
+              </div>
+              <div
+                class="focus-insight is-hidden"
+                id="storage-focus-insight"
+              >
+                <div class="insight-chart" id="storage-insight-chart"></div>
+                <p class="form-note" id="storage-insight-note"></p>
+              </div>
+              <div class="focus-provider-grid" id="storage-provider-cards"></div>
+              <div class="focus-table-wrap" id="storage-focus-table"></div>
+            </div>
+            <div class="view-tabs is-hidden" id="vm-view-tabs">
+              <button type="button" class="view-tab active" data-view="compare">
+                Compare
+              </button>
+              <button type="button" class="view-tab" data-view="aws">
+                AWS
+              </button>
+              <button type="button" class="view-tab" data-view="azure">
+                Azure
+              </button>
+              <button type="button" class="view-tab" data-view="gcp">
+                GCP
+              </button>
+              <button type="button" class="view-tab" data-view="private">
+                Private
+              </button>
+            </div>
+            <div class="vendor-subtabs is-hidden" id="vendor-subtabs">
+              <button
+                type="button"
+                class="vendor-subtab active"
+                data-vendor-view="options"
+              >
+                Options
+              </button>
+              <button
+                type="button"
+                class="vendor-subtab"
+                data-vendor-view="regions"
+              >
+                Regions
+              </button>
+            </div>
+            <div class="results-grid" id="compare-grid">
+              <article class="provider-card" id="aws-card">
+                <div class="provider-head">
+                  <div>
+                    <h3 id="aws-title">AWS</h3>
+                    <span class="provider-family" id="aws-family"></span>
+                  </div>
+                  <span class="status-pill" id="aws-status">checking</span>
+                </div>
+                <div class="metrics">
+                  <div class="metric vm-only">
+                    <span>Instance</span>
+                    <input
+                      type="text"
+                      class="instance-filter"
+                      id="aws-instance-filter"
+                      placeholder="Filter instances"
+                    />
+                    <select
+                      class="provider-select"
+                      id="aws-instance"
+                      name="awsInstanceType"
+                      form="pricing-form"
+                    ></select>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>vCPU / RAM</span>
+                    <strong id="aws-shape">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Region</span>
+                    <strong id="aws-region">-</strong>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>Compute rate</span>
+                    <strong id="aws-hourly">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Network</span>
+                    <strong id="aws-network">-</strong>
+                  </div>
+                </div>
+                <div class="price-tiers">
+                  <div class="tier-card">
+                    <span>On-demand</span>
+                    <strong id="aws-od-total">-</strong>
+                    <small id="aws-od-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>1-year</span>
+                    <strong id="aws-1y-total">-</strong>
+                    <small id="aws-1y-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>3-year</span>
+                    <strong id="aws-3y-total">-</strong>
+                    <small id="aws-3y-rate">-</small>
+                  </div>
+                </div>
+                <p class="tier-savings" id="aws-savings"></p>
+                <p class="breakdown" id="aws-breakdown"></p>
+                <p class="provider-note" id="aws-note"></p>
+              </article>
+              <article class="provider-card" id="azure-card">
+                <div class="provider-head">
+                  <div>
+                    <h3 id="azure-title">Azure</h3>
+                    <span class="provider-family" id="azure-family"></span>
+                  </div>
+                  <span class="status-pill" id="azure-status">checking</span>
+                </div>
+                <div class="metrics">
+                  <div class="metric vm-only">
+                    <span>Instance</span>
+                    <input
+                      type="text"
+                      class="instance-filter"
+                      id="azure-instance-filter"
+                      placeholder="Filter instances"
+                    />
+                    <select
+                      class="provider-select"
+                      id="azure-instance"
+                      name="azureInstanceType"
+                      form="pricing-form"
+                    ></select>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>vCPU / RAM</span>
+                    <strong id="azure-shape">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Region</span>
+                    <strong id="azure-region">-</strong>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>Compute rate</span>
+                    <strong id="azure-hourly">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Network</span>
+                    <strong id="azure-network">-</strong>
+                  </div>
+                </div>
+                <div class="price-tiers">
+                  <div class="tier-card">
+                    <span>On-demand</span>
+                    <strong id="azure-od-total">-</strong>
+                    <small id="azure-od-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>1-year</span>
+                    <strong id="azure-1y-total">-</strong>
+                    <small id="azure-1y-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>3-year</span>
+                    <strong id="azure-3y-total">-</strong>
+                    <small id="azure-3y-rate">-</small>
+                  </div>
+                </div>
+                <p class="tier-savings" id="azure-savings"></p>
+                <p class="breakdown" id="azure-breakdown"></p>
+                <p class="provider-note" id="azure-note"></p>
+              </article>
+              <article class="provider-card" id="gcp-card">
+                <div class="provider-head">
+                  <div>
+                    <h3 id="gcp-title">GCP</h3>
+                    <span class="provider-family" id="gcp-family"></span>
+                  </div>
+                  <span class="status-pill" id="gcp-status">checking</span>
+                </div>
+                <div class="metrics">
+                  <div class="metric vm-only">
+                    <span>Instance</span>
+                    <input
+                      type="text"
+                      class="instance-filter"
+                      id="gcp-instance-filter"
+                      placeholder="Filter instances"
+                    />
+                    <select
+                      class="provider-select"
+                      id="gcp-instance"
+                      name="gcpInstanceType"
+                      form="pricing-form"
+                    ></select>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>vCPU / RAM</span>
+                    <strong id="gcp-shape">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Region</span>
+                    <strong id="gcp-region">-</strong>
+                  </div>
+                  <div class="metric vm-only">
+                    <span>Compute rate</span>
+                    <strong id="gcp-hourly">-</strong>
+                  </div>
+                  <div class="metric">
+                    <span>Network</span>
+                    <strong id="gcp-network">-</strong>
+                  </div>
+                </div>
+                <div class="price-tiers">
+                  <div class="tier-card">
+                    <span>On-demand</span>
+                    <strong id="gcp-od-total">-</strong>
+                    <small id="gcp-od-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>1-year</span>
+                    <strong id="gcp-1y-total">-</strong>
+                    <small id="gcp-1y-rate">-</small>
+                  </div>
+                  <div class="tier-card reserved-tier">
+                    <span>3-year</span>
+                    <strong id="gcp-3y-total">-</strong>
+                    <small id="gcp-3y-rate">-</small>
+                  </div>
+                </div>
+                <p class="tier-savings" id="gcp-savings"></p>
+                <p class="breakdown" id="gcp-breakdown"></p>
+                <p class="provider-note" id="gcp-note"></p>
+              </article>
+              <div id="private-compare-cards" class="private-compare-cards"></div>
+            </div>
+            <div class="results-grid is-hidden" id="vendor-grid"></div>
+            <div class="region-compare is-hidden" id="vendor-region-panel">
+              <div class="region-compare-head">
+                <div>
+                  <h4>Multi-region batch compare</h4>
+                  <p>Pick 3–5 regions. Uses option 1 instance type.</p>
+                </div>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="run-region-compare"
+                >
+                  Run region compare
+                </button>
+              </div>
+              <div class="region-picker" id="vendor-region-picker"></div>
+              <p class="form-note" id="region-compare-note"></p>
+              <div class="region-table" id="region-compare-table"></div>
+            </div>
+            <template id="vendor-card-template">
+            <article class="provider-card vendor-option-card">
+              <div class="provider-head">
+                <div>
+                  <h3 data-field="title">Option</h3>
+                  <span class="provider-family" data-field="family"></span>
+                </div>
+                <span class="status-pill" data-field="status">checking</span>
+              </div>
+              <div class="metrics">
+                <div class="metric vm-only">
+                  <span>Instance</span>
+                  <select
+                    class="provider-select"
+                    data-field="instanceSelect"
+                  ></select>
+                </div>
+                <div class="metric vm-only">
+                  <span>vCPU / RAM</span>
+                  <strong data-field="shape">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Region</span>
+                  <strong data-field="region">-</strong>
+                </div>
+                <div class="metric vm-only">
+                  <span>Compute rate</span>
+                  <strong data-field="hourly">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Network</span>
+                  <strong data-field="network">-</strong>
+                </div>
+              </div>
+              <div class="price-tiers">
+                <div class="tier-card">
+                  <span>On-demand</span>
+                  <strong data-field="od-total">-</strong>
+                  <small data-field="od-rate">-</small>
+                </div>
+                <div class="tier-card reserved-tier">
+                  <span>1-year</span>
+                  <strong data-field="1y-total">-</strong>
+                  <small data-field="1y-rate">-</small>
+                </div>
+                <div class="tier-card reserved-tier">
+                  <span>3-year</span>
+                  <strong data-field="3y-total">-</strong>
+                  <small data-field="3y-rate">-</small>
+                </div>
+              </div>
+              <p class="tier-savings" data-field="savings"></p>
+              <p class="breakdown" data-field="breakdown"></p>
+              <p class="provider-note" data-field="note"></p>
+            </article>
+          </template>
+            <template id="private-compare-template">
+            <article class="provider-card private-compare-card">
+              <div class="provider-head">
+                <div>
+                  <h3 data-field="title">Private</h3>
+                  <span class="provider-family" data-field="family"></span>
+                </div>
+                <span class="status-pill" data-field="status">manual</span>
+              </div>
+              <label class="private-provider-select">
+                Provider profile
+                <select data-field="providerSelect"></select>
+              </label>
+              <div class="metrics">
+                <div class="metric vm-only">
+                  <span>Instance</span>
+                  <strong data-field="instance">-</strong>
+                </div>
+                <div class="metric vm-only">
+                  <span>vCPU / RAM</span>
+                  <strong data-field="shape">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Region</span>
+                  <strong data-field="region">-</strong>
+                </div>
+                <div class="metric vm-only">
+                  <span>Compute rate</span>
+                  <strong data-field="hourly">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Network</span>
+                  <strong data-field="network">-</strong>
+                </div>
+              </div>
+              <div class="price-tiers">
+                <div class="tier-card">
+                  <span>On-demand</span>
+                  <strong data-field="od-total">-</strong>
+                  <small data-field="od-rate">-</small>
+                </div>
+                <div class="tier-card reserved-tier">
+                  <span>1-year</span>
+                  <strong data-field="1y-total">-</strong>
+                  <small data-field="1y-rate">-</small>
+                </div>
+                <div class="tier-card reserved-tier">
+                  <span>3-year</span>
+                  <strong data-field="3y-total">-</strong>
+                  <small data-field="3y-rate">-</small>
+                </div>
+              </div>
+              <p class="tier-savings" data-field="savings"></p>
+              <p class="breakdown" data-field="breakdown"></p>
+              <p class="provider-note" data-field="note"></p>
+            </article>
+          </template>
+            <template id="private-option-template">
+            <article class="provider-card vendor-option-card">
+              <div class="provider-head">
+                <div>
+                  <h3 data-field="title">Option</h3>
+                  <span class="provider-family" data-field="family"></span>
+                </div>
+                <span class="status-pill" data-field="status">manual</span>
+              </div>
+              <label class="private-provider-select">
+                Provider profile
+                <select data-field="providerSelect"></select>
+              </label>
+              <div class="metrics">
+                <div class="metric">
+                  <span>Specs</span>
+                  <div class="private-specs">
+                    <label>
+                      vCPU
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="8"
+                        data-field="spec-vcpu"
+                      />
+                    </label>
+                    <label>
+                      RAM (GB)
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="16"
+                        data-field="spec-ram"
+                      />
+                    </label>
+                    <label>
+                      OS (GB)
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value="256"
+                        data-field="spec-os"
+                      />
+                    </label>
+                    <label>
+                      Data (GB)
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value="1024"
+                        data-field="spec-data"
+                      />
+                    </label>
+                  </div>
+                  <span class="private-instance" data-field="instance"></span>
+                </div>
+                <div class="metric">
+                  <span>vCPU / RAM</span>
+                  <strong data-field="shape">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Region</span>
+                  <strong data-field="region">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Compute rate</span>
+                  <strong data-field="hourly">-</strong>
+                </div>
+                <div class="metric">
+                  <span>Network</span>
+                  <strong data-field="network">-</strong>
+                </div>
+              </div>
+              <div class="price-tiers">
+                <div class="tier-card">
+                  <span>On-demand</span>
+                  <strong data-field="od-total">-</strong>
+                  <small data-field="od-rate">-</small>
+                </div>
+                <div class="tier-card">
+                  <span>1-year</span>
+                  <strong data-field="1y-total">-</strong>
+                  <small data-field="1y-rate">-</small>
+                </div>
+                <div class="tier-card">
+                  <span>3-year</span>
+                  <strong data-field="3y-total">-</strong>
+                  <small data-field="3y-rate">-</small>
+                </div>
+              </div>
+              <p class="tier-savings" data-field="savings"></p>
+              <p class="breakdown" data-field="breakdown"></p>
+              <p class="provider-note" data-field="note"></p>
+            </article>
+          </template>
+            <div class="delta" id="delta"></div>
+            <div class="scenario-delta is-hidden" id="scenario-delta"></div>
+            <div
+              class="scenario-component-delta is-hidden"
+              id="scenario-component-delta"
+            ></div>
+            <section class="quality-panel" id="quality-panel">
+              <div class="quality-head">
+                <h4>Data quality</h4>
+                <span id="quality-meta" class="quality-meta">Waiting for pricing...</span>
+              </div>
+              <ul id="quality-list" class="quality-list"></ul>
+            </section>
+            <section class="unit-econ-panel" id="unit-econ-panel">
+              <div class="quality-head">
+                <h4>Unit economics</h4>
+                <span id="unit-econ-note" class="quality-meta">Per-provider normalized costs.</span>
+              </div>
+              <div class="focus-table-wrap">
+                <table class="focus-table" id="unit-econ-table"></table>
+              </div>
+            </section>
+            <section class="recommend-panel" id="recommend-panel">
+              <div class="recommend-head">
+                <h4>Recommendations</h4>
+                <div class="recommend-controls">
+                  <label>
+                    Provider
+                    <select id="recommend-provider-filter">
+                      <option value="all">All providers</option>
+                      <option value="aws">AWS</option>
+                      <option value="azure">Azure</option>
+                      <option value="gcp">GCP</option>
+                    </select>
+                  </label>
+                  <label>
+                    Top N
+                    <input
+                      type="number"
+                      id="recommend-limit"
+                      min="1"
+                      max="10"
+                      step="1"
+                      value="3"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="run-recommendations"
+                  >
+                    Refresh recommendations
+                  </button>
+                </div>
+              </div>
+              <div class="recommend-list" id="recommend-list"></div>
+              <p class="form-note" id="recommend-note"></p>
+            </section>
+            <p class="disclaimer">
+            Storage uses the selected disk tier (Premium SSD or Max performance
+            with an uplift for ultra tiers; per-IOPS charges are not modeled).
+            In Kubernetes mode, data storage uses shared file storage
+            (EFS/Azure Files/Filestore), priced per cluster from public provider
+            pricing (cached; falls back to defaults); SQL pricing is disabled.
+            Backups assume 15-day retention with 10% daily delta changes and
+            use the same per-GB rate when enabled. DR uplift applies to compute
+            + storage + backups + SQL (egress excluded). Network add-ons pull
+            base hourly rates from provider pricing APIs/price lists (no data
+            processing or per-rule charges). Egress uses base internet out
+            pricing for the first tier. SQL license
+            add-on is
+            estimated per vCPU-hour and can be overridden. AWS compute uses
+            Windows BYOL pricing; SQL is added via the license input. Kubernetes
+            mode uses Linux nodes and adds premium control plane fees (EKS
+            ~$365/mo, AKS ~$438/mo, GKE ~$365/mo at 730 hours). Pricing provider
+            toggles cloud APIs versus the public Vantage snapshot. API mode
+            requires AWS/GCP credentials (Azure Retail Prices API is public);
+            missing keys are reported per provider. Retail mode uses Vantage
+            snapshots. GCP network is shown as Variable and is not filtered by
+            the 10 Gbps floor. Reserved tiers use 1-year and 3-year no-upfront
+            terms and apply to compute only; GCP reserved tiers are not
+            included. AWS reserved pricing is set to Convertible (no upfront).
+            Data and egress disk math treats 1 TB as 1024 GB. If a network
+            flavor has no hourly SKU in the pricing API, it is treated as $0
+            and called out in the provider note.
+          </p>
+          </div>
+          <div class="results-panel is-hidden" id="private-panel">
+            <div class="private-profiles-header">
+              <div>
+                <div class="form-section">Private providers</div>
+                <p id="private-save-note" class="form-note scenario-note"></p>
+              </div>
+              <div class="private-profiles-actions">
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="add-private-provider"
+                >
+                  New provider
+                </button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="export-private-providers"
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="import-private-providers"
+                >
+                  Import CSV
+                </button>
+              </div>
+            </div>
+            <input
+              type="file"
+              id="import-private-providers-file"
+              accept=".csv,text/csv"
+              class="is-hidden"
+            />
+            <div id="private-providers-list" class="private-providers-list"></div>
+            <template id="private-provider-template">
+              <article class="private-profile-card">
+                <div class="private-profile-head">
+                  <div>
+                    <h3 data-private-field="title">New provider</h3>
+                    <p class="private-profile-sub">
+                      Private cloud pricing (manual or imported from VSAx).
+                    </p>
+                  </div>
+                </div>
+                <div class="form-grid private-profile-grid">
+                  <label>
+                    Provider name
+                    <input
+                      type="text"
+                      data-private-field="name"
+                      placeholder="Private DC 1"
+                    />
+                  </label>
+                  <div class="private-import-tools">
+                    <label>
+                      VSAx group (capacity source)
+                      <select data-private-field="vsaxGroupName"></select>
+                    </label>
+                    <button
+                      type="button"
+                      class="secondary-btn"
+                      data-private-action="import-vsax"
+                    >
+                      Import actual capacity
+                    </button>
+                  </div>
+                  <p class="form-note private-vsax-note" data-private-field="vsaxImportNote"></p>
+                  <div class="form-section">Private cloud (manual)</div>
+                  <label class="checkbox-field">
+                    <input
+                      type="checkbox"
+                      data-private-field="enabled"
+                    />
+                    <span>Include private cloud</span>
+                  </label>
+                  <div class="form-section">Private hardware</div>
+                  <label>
+                    Node vCPU capacity
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value="1"
+                      data-private-field="nodeCpu"
+                    />
+                  </label>
+                  <label>
+                    Node RAM capacity (GB)
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value="128"
+                      data-private-field="nodeRam"
+                    />
+                  </label>
+                  <label>
+                    Node usable storage (TB)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value="2"
+                      data-private-field="nodeStorageTb"
+                    />
+                  </label>
+                  <label>
+                    VM OS disk size (GB)
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value="256"
+                      data-private-field="vmOsDiskGb"
+                    />
+                  </label>
+                  <div class="form-section">VM capacity (per node + N+1)</div>
+                  <div class="capacity-table">
+                    <div class="capacity-row capacity-head">
+                      <span>Flavor</span>
+                      <span>vCPU</span>
+                      <span>RAM</span>
+                      <span>OS</span>
+                      <span>VMs / node</span>
+                      <span>VMs (N+1)</span>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 8/16</span>
+                      <span>8</span>
+                      <span>16 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="8-16">-</strong>
+                      <strong data-private-capacity-total="8-16">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 12/24</span>
+                      <span>12</span>
+                      <span>24 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="12-24">-</strong>
+                      <strong data-private-capacity-total="12-24">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 16/32</span>
+                      <span>16</span>
+                      <span>32 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="16-32">-</strong>
+                      <strong data-private-capacity-total="16-32">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 24/48</span>
+                      <span>24</span>
+                      <span>48 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="24-48">-</strong>
+                      <strong data-private-capacity-total="24-48">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 48/64</span>
+                      <span>48</span>
+                      <span>64 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="48-64">-</strong>
+                      <strong data-private-capacity-total="48-64">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 64/128</span>
+                      <span>64</span>
+                      <span>128 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="64-128">-</strong>
+                      <strong data-private-capacity-total="64-128">-</strong>
+                    </div>
+                    <div class="capacity-row">
+                      <span>Standard 128/512</span>
+                      <span>128</span>
+                      <span>512 GB</span>
+                      <span class="private-os-size">256 GB</span>
+                      <strong data-private-capacity="128-512">-</strong>
+                      <strong data-private-capacity-total="128-512">-</strong>
+                    </div>
+                  </div>
+                  <div class="form-section">SAN storage</div>
+                  <label>
+                    Usable SAN storage (TB)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.1"
+                      value="0"
+                      data-private-field="sanUsableTb"
+                    />
+                  </label>
+                  <label>
+                    SAN total monthly cost ($)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="sanTotalMonthly"
+                    />
+                  </label>
+                  <div class="private-metric">
+                    SAN cost per TB:
+                    <strong data-private-field="sanRate">-</strong>
+                  </div>
+                  <label>
+                    VMware per node ($/month)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="vmwareMonthly"
+                    />
+                  </label>
+                  <label>
+                    VMware node count (N+1)
+                    <input
+                      type="number"
+                      min="2"
+                      step="1"
+                      value="2"
+                      data-private-field="nodeCount"
+                    />
+                  </label>
+                  <label>
+                    Windows license per VM ($/month)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="windowsLicenseMonthly"
+                    />
+                  </label>
+                  <input
+                    type="hidden"
+                    data-private-field="storagePerTb"
+                    value="0"
+                  />
+                  <label>
+                    Private network ($/month)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="networkMonthly"
+                    />
+                  </label>
+                  <label>
+                    Private firewall ($/month)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="firewallMonthly"
+                    />
+                  </label>
+                  <label>
+                    Private load balancer ($/month)
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value="0"
+                      data-private-field="loadBalancerMonthly"
+                    />
+                  </label>
+                  <div class="private-actions">
+                    <button
+                      type="button"
+                      class="secondary-btn"
+                      data-private-action="save"
+                    >
+                      Save provider
+                    </button>
+                    <button
+                      type="button"
+                      class="secondary-btn"
+                      data-private-action="delete"
+                    >
+                      Delete provider
+                    </button>
+                  </div>
+                </div>
+              </article>
+            </template>
+          </div>
+          <div class="results-panel is-hidden" id="saved-compare-panel">
+            <div class="panel-actions">
+              <button
+                type="button"
+                class="secondary-btn"
+                id="saved-compare-refresh"
+              >
+                Run saved compare
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="import-scenario"
+              >
+                Import JSON
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="import-scenario-csv"
+              >
+                Import CSV
+              </button>
+            </div>
+            <input
+              type="file"
+              id="import-scenario-file"
+              accept="application/json"
+              class="is-hidden"
+            />
+            <input
+              type="file"
+              id="import-scenario-csv-file"
+              accept=".csv,text/csv"
+              class="is-hidden"
+            />
+            <p class="form-note" id="saved-compare-note"></p>
+            <div class="saved-compare-table" id="saved-compare-table"></div>
+          </div>
+          <div class="results-panel is-hidden" id="vsax-compare-panel">
+            <div class="vsax-compare-sticky">
+              <div class="panel-actions vsax-compare-actions">
+                <label>
+                  VSAx group
+                  <select id="vsax-compare-group">
+                    <option value="">All groups</option>
+                  </select>
+                </label>
+                <label>
+                  Region
+                  <select id="vsax-compare-region">
+                    <option value="us-east">US East (N. Virginia / East US)</option>
+                  </select>
+                </label>
+                <label>
+                  Price source
+                  <select id="vsax-compare-pricing-provider">
+                    <option value="api">API</option>
+                    <option value="retail">Retail snapshot</option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="vsax-compare-refresh"
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="vsax-compare-export-csv"
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="vsax-compare-export-excel"
+                >
+                  Export Excel
+                </button>
+                <button
+                  type="button"
+                  class="secondary-btn"
+                  id="vsax-compare-export-pdf"
+                >
+                  Export PDF
+                </button>
+              </div>
+              <p class="form-note" id="vsax-compare-note"></p>
+              <div class="billing-summary vsax-compare-summary" id="vsax-compare-summary"></div>
+            </div>
+            <div class="saved-compare-table vsax-compare-table" id="vsax-compare-table"></div>
+          </div>
+          <div class="results-panel is-hidden" id="billing-panel">
+            <div class="panel-actions billing-actions">
+              <div class="focus-tabs billing-provider-tabs">
+                <button
+                  type="button"
+                  class="focus-tab active"
+                  data-billing-provider="aws"
+                >
+                  AWS
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-billing-provider="azure"
+                >
+                  Azure
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-billing-provider="gcp"
+                >
+                  GCP
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-billing-provider="rackspace"
+                >
+                  Rackspace
+                </button>
+                <button
+                  type="button"
+                  class="focus-tab"
+                  data-billing-provider="unified"
+                >
+                  Unified
+                </button>
+              </div>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="billing-import-csv"
+              >
+                Import CSV
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="billing-export-csv"
+              >
+                Export CSV
+              </button>
+              <button type="button" class="secondary-btn" id="billing-clear">
+                Clear provider
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="billing-clear-all"
+              >
+                Clear all
+              </button>
+            </div>
+            <input
+              type="file"
+              id="billing-import-file"
+              accept=".csv,text/csv"
+              multiple
+              class="is-hidden"
+            />
+            <p class="form-note" id="billing-note"></p>
+            <p class="form-note billing-format-hint" id="billing-format-hint"></p>
+            <div class="billing-tools">
+              <div class="billing-filter">
+                <label>
+                  Billing period
+                  <select id="billing-month-filter">
+                    <option value="all">All months</option>
+                  </select>
+                </label>
+                <label>
+                  Product app filter
+                  <select id="billing-product-filter">
+                    <option value="">All product apps</option>
+                    <option value="__untagged__">Untagged</option>
+                  </select>
+                </label>
+                <label>
+                  Graph by
+                  <select id="billing-chart-group">
+                    <option value="service">Service</option>
+                    <option value="account">Account</option>
+                    <option value="productApp">Product app</option>
+                    <option value="tag">Tag</option>
+                  </select>
+                </label>
+              </div>
+              <div class="billing-tagging">
+                <div class="billing-tagging-grid">
+                  <label>
+                    Service
+                    <select id="billing-tag-service">
+                      <option value="">Select service</option>
+                    </select>
+                  </label>
+                  <label>
+                    Product app
+                    <input
+                      type="text"
+                      id="billing-tag-product-app"
+                      placeholder="e.g. LKInterface"
+                    />
+                  </label>
+                  <label>
+                    Custom tags (comma-separated)
+                    <input
+                      type="text"
+                      id="billing-tag-custom"
+                      placeholder="env:prod, owner:platform"
+                    />
+                  </label>
+                  <label>
+                    Selected line items
+                    <input
+                      type="text"
+                      id="billing-bulk-count"
+                      value="0 selected"
+                      readonly
+                    />
+                  </label>
+                  <label>
+                    Bulk product app
+                    <input
+                      type="text"
+                      id="billing-bulk-product-app"
+                      placeholder="e.g. LKOasis"
+                    />
+                  </label>
+                  <label>
+                    Bulk tags (comma-separated)
+                    <input
+                      type="text"
+                      id="billing-bulk-tags"
+                      placeholder="tag1, tag2"
+                    />
+                  </label>
+                </div>
+                <div class="billing-tag-actions">
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-apply-tags"
+                  >
+                    Apply tags
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-clear-tags"
+                  >
+                    Clear tags
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-bulk-select-visible"
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-bulk-clear-selection"
+                  >
+                    Clear selection
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-bulk-apply"
+                  >
+                    Apply to selected
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="billing-bulk-clear-tags"
+                  >
+                    Clear selected tags
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="billing-summary" id="billing-summary"></div>
+            <div class="billing-chart" id="billing-chart"></div>
+            <div class="saved-compare-table" id="billing-table"></div>
+          </div>
+          <div class="results-panel is-hidden" id="data-transfer-panel">
+            <div class="panel-actions">
+              <button
+                type="button"
+                class="secondary-btn"
+                id="data-transfer-export"
+              >
+                Export all user data
+              </button>
+              <button
+                type="button"
+                class="secondary-btn"
+                id="data-transfer-import"
+              >
+                Import user data
+              </button>
+              <input
+                type="file"
+                id="data-transfer-import-file"
+                accept=".json,application/json"
+                class="is-hidden"
+              />
+            </div>
+            <section class="admin-card data-transfer-card">
+              <div class="form-section">Full profile transfer</div>
+              <p class="data-transfer-text">
+                Export or import scenarios, private cloud profiles, saved compare
+                selections, billing imports, and tags.
+              </p>
+              <p class="data-transfer-text" id="data-transfer-scope"></p>
+              <p class="form-note" id="data-transfer-note"></p>
+            </section>
+            <section class="admin-card data-transfer-card">
+              <div class="form-section">Rollback history</div>
+              <p class="data-transfer-text">
+                Every saved change creates a version. The app keeps the last 50
+                versions per user on this browser.
+              </p>
+              <div class="data-transfer-history-controls">
+                <label>
+                  Saved versions
+                  <select id="data-version-select">
+                    <option value="">No versions available</option>
+                  </select>
+                </label>
+                <div class="data-transfer-history-actions">
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="data-version-rollback"
+                  >
+                    Roll Back to Selected
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary-btn"
+                    id="data-version-refresh"
+                  >
+                    Refresh Versions
+                  </button>
+                </div>
+              </div>
+              <p class="form-note" id="data-version-note"></p>
+            </section>
+          </div>
+          <div class="results-panel is-hidden" id="admin-panel">
+            <div class="panel-actions">
+              <button
+                type="button"
+                class="secondary-btn"
+                id="admin-refresh-users"
+              >
+                Refresh users
+              </button>
+            </div>
+            <div class="admin-grid">
+              <section class="admin-card">
+                <div class="form-section">Add user</div>
+                <form id="admin-add-user-form" class="admin-form" autocomplete="off">
+                  <label>
+                    Username
+                    <input
+                      type="text"
+                      id="admin-add-username"
+                      placeholder="new-user"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      type="password"
+                      id="admin-add-password"
+                      placeholder="Set temporary password"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Role
+                    <select id="admin-add-role">
+                      <option value="user" selected>Regular user</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+                  <button type="submit" class="secondary-btn">Add user</button>
+                </form>
+              </section>
+              <section class="admin-card">
+                <div class="form-section">Update password</div>
+                <form
+                  id="admin-update-password-form"
+                  class="admin-form"
+                  autocomplete="off"
+                >
+                  <label>
+                    Username
+                    <select id="admin-update-username" required>
+                      <option value="">Select user</option>
+                    </select>
+                  </label>
+                  <label>
+                    New password
+                    <input
+                      type="password"
+                      id="admin-update-password"
+                      placeholder="Enter new password"
+                      required
+                    />
+                  </label>
+                  <button type="submit" class="secondary-btn">
+                    Update password
+                  </button>
+                </form>
+              </section>
+            </div>
+            <p class="form-note" id="admin-note"></p>
+            <div class="saved-compare-table" id="admin-users-table"></div>
+          </div>
+          <div class="results-panel is-hidden" id="scenarios-panel">
+            <div class="panel-actions">
+              <button
+                type="button"
+                class="secondary-btn"
+                id="saved-compare-private-run"
+              >
+                Compare private vs public
+              </button>
+            </div>
+            <div class="saved-compare-controls">
+              <div class="saved-compare-block">
+                <div class="form-section">Public scenarios</div>
+                <div
+                  class="saved-compare-list"
+                  id="saved-compare-scenarios"
+                ></div>
+              </div>
+              <div class="saved-compare-block">
+                <div class="form-section">Private providers</div>
+                <div
+                  class="saved-compare-list"
+                  id="saved-compare-private"
+                ></div>
+              </div>
+            </div>
+            <p class="form-note" id="saved-compare-private-note"></p>
+            <div
+              class="saved-compare-table"
+              id="saved-compare-private-table"
+            ></div>
+          </div>
+          <div class="results-panel is-hidden" id="insight-panel">
+            <div class="insight-legend">
+              <span class="legend-item">
+                <span class="legend-swatch compute"></span>
+                Compute
+              </span>
+              <span class="legend-item">
+                <span class="legend-swatch storage"></span>
+                Storage
+              </span>
+              <span class="legend-item">
+                <span class="legend-swatch egress"></span>
+                Egress
+              </span>
+              <span class="legend-item">
+                <span class="legend-swatch licenses"></span>
+                Licenses
+              </span>
+            </div>
+            <div class="insight-chart" id="insight-chart"></div>
+            <p class="form-note" id="insight-note"></p>
+          </div>
+          <div class="results-panel is-hidden" id="commit-panel">
+            <div class="commit-grid">
+              <article class="provider-card commit-card" data-provider="aws">
+                <div class="provider-head">
+                  <div>
+                    <h3>AWS</h3>
+                    <span class="provider-family">Cloud commit</span>
+                  </div>
+                  <span class="status-pill">commit</span>
+                </div>
+                <label class="commit-input">
+                  Commitment type
+                  <select data-commit-type="aws">
+                    <option value="aws-savings-plan">Savings Plan (compute)</option>
+                    <option value="aws-reserved-instance">Reserved Instance</option>
+                  </select>
+                </label>
+                <label class="commit-input">
+                  Discount (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value="25"
+                    data-commit-discount="aws"
+                  />
+                </label>
+                <div class="commit-details">
+                  <div class="commit-column">
+                    <h4>On-demand</h4>
+                    <div class="commit-line">
+                      <span>Compute</span>
+                      <strong data-commit="aws-base-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="aws-base-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="aws-base-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="aws-base-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="aws-base-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="aws-base-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="aws-base-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="aws-base-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="aws-base-dr">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="aws-base-total">-</strong>
+                    </div>
+                  </div>
+                  <div class="commit-column">
+                    <h4>Committed</h4>
+                    <div class="commit-line">
+                      <span>Compute (discounted)</span>
+                      <strong data-commit="aws-commit-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="aws-commit-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="aws-commit-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="aws-commit-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="aws-commit-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="aws-commit-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="aws-commit-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="aws-commit-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="aws-commit-dr">-</strong>
+                    </div>
+                    <div class="commit-line commit-savings">
+                      <span>Compute commitment</span>
+                      <strong data-commit="aws-commit-savings">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="aws-commit-total">-</strong>
+                    </div>
+                  </div>
+                </div>
+                <p class="provider-note" data-commit="aws-note"></p>
+              </article>
+              <article class="provider-card commit-card" data-provider="azure">
+                <div class="provider-head">
+                  <div>
+                    <h3>Azure</h3>
+                    <span class="provider-family">Cloud commit</span>
+                  </div>
+                  <span class="status-pill">commit</span>
+                </div>
+                <label class="commit-input">
+                  Commitment type
+                  <select data-commit-type="azure">
+                    <option value="azure-reservation">Reservations</option>
+                    <option value="azure-savings-plan">Savings Plan</option>
+                  </select>
+                </label>
+                <label class="commit-input">
+                  Discount (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value="25"
+                    data-commit-discount="azure"
+                  />
+                </label>
+                <div class="commit-details">
+                  <div class="commit-column">
+                    <h4>On-demand</h4>
+                    <div class="commit-line">
+                      <span>Compute</span>
+                      <strong data-commit="azure-base-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="azure-base-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="azure-base-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="azure-base-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="azure-base-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="azure-base-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="azure-base-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="azure-base-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="azure-base-dr">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="azure-base-total">-</strong>
+                    </div>
+                  </div>
+                  <div class="commit-column">
+                    <h4>Committed</h4>
+                    <div class="commit-line">
+                      <span>Compute (discounted)</span>
+                      <strong data-commit="azure-commit-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="azure-commit-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="azure-commit-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="azure-commit-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="azure-commit-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="azure-commit-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="azure-commit-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="azure-commit-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="azure-commit-dr">-</strong>
+                    </div>
+                    <div class="commit-line commit-savings">
+                      <span>Compute commitment</span>
+                      <strong data-commit="azure-commit-savings">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="azure-commit-total">-</strong>
+                    </div>
+                  </div>
+                </div>
+                <p class="provider-note" data-commit="azure-note"></p>
+              </article>
+              <article class="provider-card commit-card" data-provider="gcp">
+                <div class="provider-head">
+                  <div>
+                    <h3>GCP</h3>
+                    <span class="provider-family">Cloud commit</span>
+                  </div>
+                  <span class="status-pill">commit</span>
+                </div>
+                <label class="commit-input">
+                  Commitment type
+                  <select data-commit-type="gcp">
+                    <option value="gcp-cud-1y">Committed Use Discount (1-year)</option>
+                    <option value="gcp-cud-3y">Committed Use Discount (3-year)</option>
+                  </select>
+                </label>
+                <label class="commit-input">
+                  Discount (%)
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value="25"
+                    data-commit-discount="gcp"
+                  />
+                </label>
+                <div class="commit-details">
+                  <div class="commit-column">
+                    <h4>On-demand</h4>
+                    <div class="commit-line">
+                      <span>Compute</span>
+                      <strong data-commit="gcp-base-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="gcp-base-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="gcp-base-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="gcp-base-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="gcp-base-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="gcp-base-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="gcp-base-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="gcp-base-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="gcp-base-dr">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="gcp-base-total">-</strong>
+                    </div>
+                  </div>
+                  <div class="commit-column">
+                    <h4>Committed</h4>
+                    <div class="commit-line">
+                      <span>Compute (discounted)</span>
+                      <strong data-commit="gcp-commit-compute">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Control plane</span>
+                      <strong data-commit="gcp-commit-control">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Storage</span>
+                      <strong data-commit="gcp-commit-storage">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Backups</span>
+                      <strong data-commit="gcp-commit-backup">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Egress</span>
+                      <strong data-commit="gcp-commit-egress">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Network</span>
+                      <strong data-commit="gcp-commit-network">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>SQL</span>
+                      <strong data-commit="gcp-commit-sql">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>Windows</span>
+                      <strong data-commit="gcp-commit-windows">-</strong>
+                    </div>
+                    <div class="commit-line">
+                      <span>DR</span>
+                      <strong data-commit="gcp-commit-dr">-</strong>
+                    </div>
+                    <div class="commit-line commit-savings">
+                      <span>Compute commitment</span>
+                      <strong data-commit="gcp-commit-savings">-</strong>
+                    </div>
+                    <div class="commit-total">
+                      <span>Total</span>
+                      <strong data-commit="gcp-commit-total">-</strong>
+                    </div>
+                  </div>
+                </div>
+                <p class="provider-note" data-commit="gcp-note"></p>
+              </article>
+            </div>
+            <div class="commit-insight">
+              <div class="commit-insight-head">
+                <h4>Savings insight</h4>
+                <p>On-demand vs committed totals.</p>
+              </div>
+              <div class="commit-insight-table">
+                <div class="commit-insight-row">
+                  <div class="commit-insight-header">
+                    <span class="commit-insight-label">AWS</span>
+                    <div class="commit-insight-values">
+                      <span data-commit-insight-base="aws">-</span>
+                      <span data-commit-insight-commit="aws">-</span>
+                      <span data-commit-insight-save="aws">-</span>
+                    </div>
+                  </div>
+                  <div class="commit-insight-bars">
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">On-demand</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill on-demand"
+                          data-commit-insight-bar="aws-base"
+                        ></span>
+                      </div>
+                    </div>
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">Committed</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill committed"
+                          data-commit-insight-bar="aws-commit"
+                        ></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="commit-insight-row">
+                  <div class="commit-insight-header">
+                    <span class="commit-insight-label">Azure</span>
+                    <div class="commit-insight-values">
+                      <span data-commit-insight-base="azure">-</span>
+                      <span data-commit-insight-commit="azure">-</span>
+                      <span data-commit-insight-save="azure">-</span>
+                    </div>
+                  </div>
+                  <div class="commit-insight-bars">
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">On-demand</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill on-demand"
+                          data-commit-insight-bar="azure-base"
+                        ></span>
+                      </div>
+                    </div>
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">Committed</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill committed"
+                          data-commit-insight-bar="azure-commit"
+                        ></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div class="commit-insight-row">
+                  <div class="commit-insight-header">
+                    <span class="commit-insight-label">GCP</span>
+                    <div class="commit-insight-values">
+                      <span data-commit-insight-base="gcp">-</span>
+                      <span data-commit-insight-commit="gcp">-</span>
+                      <span data-commit-insight-save="gcp">-</span>
+                    </div>
+                  </div>
+                  <div class="commit-insight-bars">
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">On-demand</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill on-demand"
+                          data-commit-insight-bar="gcp-base"
+                        ></span>
+                      </div>
+                    </div>
+                    <div class="commit-insight-bar">
+                      <span class="commit-insight-bar-label">Committed</span>
+                      <div class="commit-insight-track">
+                        <span
+                          class="commit-insight-fill committed"
+                          data-commit-insight-bar="gcp-commit"
+                        ></span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="form-note" id="commit-note"></p>
+          </div>
+        </section>
+      </section>
+    </main>
+    <script src="app.js"></script>
+  </body>
+</html>
