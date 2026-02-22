@@ -144,6 +144,172 @@ Then commit both:
 - Legacy `AWS_ACCOUNTS_JSON` / direct `AWS_*` env values are still supported as fallback for bootstrap/migration.
 - Wasabi integrations still support `WASABI_ACCOUNTS_JSON` and direct keys; prefer storing provider credentials in `Admin -> Vendor onboarding` for long-term management.
 
+### Vendor onboarding examples (per provider)
+
+Use `Admin -> Vendor onboarding`, then set:
+
+- `Name`
+- `Provider`
+- `Cloud type` (`public` / `private`)
+- `Auth method`
+- `Subscription / account / billing ID` (`accountId` field)
+- `Project ID` (optional, provider-specific)
+- `Credentials JSON` (examples below)
+
+#### Azure (billing + tags + cloud metrics)
+
+- Provider: `azure`
+- Auth method: `service_principal`
+- Account ID field: Azure subscription ID
+
+```json
+{
+  "tenantId": "00000000-0000-0000-0000-000000000000",
+  "clientId": "00000000-0000-0000-0000-000000000000",
+  "clientSecret": "your-client-secret",
+  "subscriptionId": "00000000-0000-0000-0000-000000000000"
+}
+```
+
+#### AWS (vendor-first account resolution)
+
+- Provider: `aws`
+- Auth method: `api_key`
+- Account ID field: AWS account ID or account label
+
+```json
+{
+  "accountId": "965919626463",
+  "displayName": "MultiCare-Dev",
+  "accessKeyId": "AKIA...",
+  "secretAccessKey": "...",
+  "region": "us-east-1",
+  "cloudWatchRegion": "us-east-1",
+  "efsRegions": ["us-east-1"],
+  "metricRegions": ["us-east-1", "us-east-2"]
+}
+```
+
+Profile-only variant:
+
+```json
+{
+  "accountId": "bridgeconnect",
+  "displayName": "BridgeConnect",
+  "profile": "bridgeconnect"
+}
+```
+
+#### GCP (manual fallback mode currently)
+
+- Provider: `gcp`
+- Auth method: `service_account_or_export`
+- Account ID field: Billing account ID
+
+```json
+{
+  "billingAccountId": "000000-000000-000000",
+  "manualMonthlyCost": 1000,
+  "manualCurrency": "USD"
+}
+```
+
+#### Rackspace
+
+- Provider: `rackspace`
+- Auth method: `api_key`
+- Account ID field: Billing account number (RAN), e.g. `020-123456`
+
+```json
+{
+  "username": "rackspace-user",
+  "apiKey": "rackspace-api-key",
+  "accountId": "030-34972734591",
+  "region": "ORD"
+}
+```
+
+#### Wasabi WACM (`wasabi`)
+
+- Provider: `wasabi`
+- Auth method: `api_key`
+- Account ID field: Optional sub-account filter
+
+```json
+{
+  "wacmUsername": "your-wacm-username",
+  "wacmApiKey": "your-wacm-api-key",
+  "wacmEndpoint": "https://api.wacm.wasabisys.com/api/v1/invoices"
+}
+```
+
+#### Wasabi MAIN (`wasabi-main`)
+
+- Provider: `wasabi-main`
+- Auth method: `api_key`
+- Account ID field: Optional control account filter
+
+```json
+{
+  "wacmUsername": "your-wacm-username",
+  "wacmApiKey": "your-wacm-api-key",
+  "wacmUsageEndpoint": "https://api.wacm.wasabisys.com/api/v1/usages",
+  "wacmControlUsageEndpoint": "https://api.wacm.wasabisys.com/api/v1/control-accounts/usages",
+  "includeAllAccounts": true,
+  "includeSubAccounts": false
+}
+```
+
+#### SendGrid
+
+- Provider: `sendgrid`
+- Auth method: `api_key`
+- Account ID field: Optional account label/ID
+
+```json
+{
+  "apiKey": "SG.xxxxx",
+  "billingEndpoint": "https://api.sendgrid.com/v3/billing/invoices",
+  "accountId": "sendgrid-main"
+}
+```
+
+#### Grafana-Cloud
+
+- Provider: `grafana-cloud`
+- Auth method: `api_key`
+- Account ID field: Org slug (recommended)
+
+```json
+{
+  "orgSlug": "ellkaypoc",
+  "accessPolicyToken": "glsa_xxx",
+  "stackAccessPolicyToken": "glsa_xxx",
+  "stackBaseUrl": "https://ellkaypoc.grafana.net",
+  "flexCommitEnabled": true,
+  "flexCommitAmount": 120000,
+  "flexCommitStartDate": "2026-01-01",
+  "flexCommitYears": 3,
+  "flexCommitCurrency": "USD",
+  "flexCommitReportingMode": "usage"
+}
+```
+
+#### Private / Other (custom connector placeholders)
+
+```json
+{
+  "endpoint": "https://api.example.com",
+  "apiKey": "secret-token"
+}
+```
+
+Notes:
+
+- Credentials are encrypted at rest in DB.
+- Use `Test` in vendor table to validate connectivity.
+- Use `Export` / `Import` for single-vendor backup/migration or `Export all` / `Import all` for bulk moves.
+
 ### Import/export app config
 
 Admin can export/import one unencrypted JSON bundle:
