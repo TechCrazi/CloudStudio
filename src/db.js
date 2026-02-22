@@ -105,6 +105,34 @@ db.exec(`
     PRIMARY KEY (provider, resource_id)
   );
 
+  CREATE TABLE IF NOT EXISTS grafana_cloud_ingest_daily (
+    vendor_id TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    account_id TEXT,
+    org_slug TEXT,
+    usage_date TEXT NOT NULL,
+    dimension_key TEXT NOT NULL,
+    dimension_name TEXT,
+    stack_slug TEXT NOT NULL,
+    stack_name TEXT,
+    unit TEXT,
+    total_usage REAL,
+    ingest_usage REAL,
+    query_usage REAL,
+    active_series REAL,
+    dpm REAL,
+    amount_due REAL,
+    currency TEXT,
+    is_estimated INTEGER NOT NULL DEFAULT 0,
+    source TEXT,
+    raw_json TEXT,
+    fetched_at TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (vendor_id, usage_date, dimension_key, stack_slug),
+    FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS billing_budget_plans (
     id TEXT PRIMARY KEY,
     target_type TEXT NOT NULL,
@@ -133,6 +161,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_resource_tags_vendor ON resource_tags(vendor_id);
   CREATE INDEX IF NOT EXISTS idx_cloud_metrics_provider ON cloud_metrics_latest(provider);
   CREATE INDEX IF NOT EXISTS idx_cloud_metrics_provider_type ON cloud_metrics_latest(provider, resource_type);
+  CREATE INDEX IF NOT EXISTS idx_grafana_ingest_vendor_date ON grafana_cloud_ingest_daily(vendor_id, usage_date);
+  CREATE INDEX IF NOT EXISTS idx_grafana_ingest_provider_date ON grafana_cloud_ingest_daily(provider, usage_date);
   CREATE INDEX IF NOT EXISTS idx_billing_budget_type_year ON billing_budget_plans(target_type, budget_year);
   CREATE INDEX IF NOT EXISTS idx_billing_budget_vendor_year ON billing_budget_plans(vendor_id, budget_year);
   CREATE INDEX IF NOT EXISTS idx_billing_budget_provider_year ON billing_budget_plans(target_provider, budget_year);
@@ -221,7 +251,21 @@ function normalizeProvider(value) {
   if (v === 'wasabi-wacm') {
     return 'wasabi';
   }
-  if (['azure', 'aws', 'gcp', 'rackspace', 'private', 'wasabi', 'wasabi-main', 'vsax', 'other'].includes(v)) {
+  if (
+    [
+      'azure',
+      'aws',
+      'gcp',
+      'sendgrid',
+      'rackspace',
+      'grafana-cloud',
+      'private',
+      'wasabi',
+      'wasabi-main',
+      'vsax',
+      'other'
+    ].includes(v)
+  ) {
     return v;
   }
   return 'other';
@@ -1225,6 +1269,361 @@ function summarizeCloudMetricsProviders() {
   }));
 }
 
+function normalizeDateOnly(value) {
+  const text = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return '';
+  }
+  const date = new Date(`${text}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  if (date.toISOString().slice(0, 10) !== text) {
+    return '';
+  }
+  return text;
+}
+
+function normalizeGrafanaDimensionKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 128);
+}
+
+function normalizeGrafanaStackSlug(value) {
+  const slug = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 128);
+  return slug || 'org';
+}
+
+function replaceGrafanaCloudDailyIngest(vendorIdRaw, rows = [], options = {}) {
+  const vendorId = String(vendorIdRaw || '').trim();
+  if (!vendorId) {
+    return {
+      vendorId: '',
+      upserted: 0,
+      deleted: 0
+    };
+  }
+
+  const provider = normalizeProvider(options.provider || 'grafana-cloud');
+  const fetchedAt = String(options.fetchedAt || nowIso()).trim() || nowIso();
+  const periodStart = normalizeDateOnly(options.periodStart);
+  const periodEnd = normalizeDateOnly(options.periodEnd);
+  const now = nowIso();
+  const entries = Array.isArray(rows) ? rows : [];
+
+  const upsertStmt = db.prepare(`
+    INSERT INTO grafana_cloud_ingest_daily (
+      vendor_id,
+      provider,
+      account_id,
+      org_slug,
+      usage_date,
+      dimension_key,
+      dimension_name,
+      stack_slug,
+      stack_name,
+      unit,
+      total_usage,
+      ingest_usage,
+      query_usage,
+      active_series,
+      dpm,
+      amount_due,
+      currency,
+      is_estimated,
+      source,
+      raw_json,
+      fetched_at,
+      created_at,
+      updated_at
+    ) VALUES (
+      @vendor_id,
+      @provider,
+      @account_id,
+      @org_slug,
+      @usage_date,
+      @dimension_key,
+      @dimension_name,
+      @stack_slug,
+      @stack_name,
+      @unit,
+      @total_usage,
+      @ingest_usage,
+      @query_usage,
+      @active_series,
+      @dpm,
+      @amount_due,
+      @currency,
+      @is_estimated,
+      @source,
+      @raw_json,
+      @fetched_at,
+      @created_at,
+      @updated_at
+    )
+    ON CONFLICT(vendor_id, usage_date, dimension_key, stack_slug) DO UPDATE SET
+      provider = excluded.provider,
+      account_id = excluded.account_id,
+      org_slug = excluded.org_slug,
+      dimension_name = excluded.dimension_name,
+      stack_name = excluded.stack_name,
+      unit = excluded.unit,
+      total_usage = excluded.total_usage,
+      ingest_usage = excluded.ingest_usage,
+      query_usage = excluded.query_usage,
+      active_series = excluded.active_series,
+      dpm = excluded.dpm,
+      amount_due = excluded.amount_due,
+      currency = excluded.currency,
+      is_estimated = excluded.is_estimated,
+      source = excluded.source,
+      raw_json = excluded.raw_json,
+      fetched_at = excluded.fetched_at,
+      updated_at = excluded.updated_at
+  `);
+
+  const deleteRangeStmt = db.prepare(`
+    DELETE FROM grafana_cloud_ingest_daily
+    WHERE vendor_id = ? AND usage_date >= ? AND usage_date <= ?
+  `);
+
+  let upserted = 0;
+  let deleted = 0;
+  const tx = db.transaction(() => {
+    if (periodStart && periodEnd) {
+      const info = deleteRangeStmt.run(vendorId, periodStart, periodEnd);
+      deleted = Number(info?.changes || 0);
+    }
+
+    const aggregated = new Map();
+    for (const row of entries) {
+      const usageDate = normalizeDateOnly(row?.usageDate);
+      const dimensionKey = normalizeGrafanaDimensionKey(row?.dimensionKey || row?.dimensionName);
+      const stackSlug = normalizeGrafanaStackSlug(row?.stackSlug || row?.stackName);
+      if (!usageDate || !dimensionKey || !stackSlug) {
+        continue;
+      }
+
+      const key = `${usageDate}::${dimensionKey}::${stackSlug}`;
+      const current = aggregated.get(key) || {
+        vendor_id: vendorId,
+        provider,
+        account_id: null,
+        org_slug: null,
+        usage_date: usageDate,
+        dimension_key: dimensionKey,
+        dimension_name: null,
+        stack_slug: stackSlug,
+        stack_name: null,
+        unit: null,
+        total_usage: null,
+        ingest_usage: null,
+        query_usage: null,
+        active_series: null,
+        dpm: null,
+        amount_due: null,
+        currency: null,
+        is_estimated: 0,
+        source: null,
+        raw_json: row?.raw && typeof row.raw === 'object' ? JSON.stringify(row.raw) : null,
+        fetched_at: row?.fetchedAt ? String(row.fetchedAt).trim().slice(0, 64) : fetchedAt,
+        created_at: now,
+        updated_at: now
+      };
+
+      const accountId = row?.accountId ? String(row.accountId).trim().slice(0, 512) : '';
+      if (accountId && !current.account_id) {
+        current.account_id = accountId;
+      }
+      const orgSlug = row?.orgSlug ? String(row.orgSlug).trim().slice(0, 512) : '';
+      if (orgSlug && !current.org_slug) {
+        current.org_slug = orgSlug;
+      }
+      const dimensionName = row?.dimensionName ? String(row.dimensionName).trim().slice(0, 256) : '';
+      if (dimensionName && !current.dimension_name) {
+        current.dimension_name = dimensionName;
+      }
+      const stackName = row?.stackName ? String(row.stackName).trim().slice(0, 512) : '';
+      if (stackName && !current.stack_name) {
+        current.stack_name = stackName;
+      }
+      const unit = row?.unit ? String(row.unit).trim().slice(0, 128) : '';
+      if (unit && !current.unit) {
+        current.unit = unit;
+      }
+      const currency = row?.currency ? String(row.currency).trim().toUpperCase().slice(0, 16) : '';
+      if (currency && !current.currency) {
+        current.currency = currency;
+      }
+      const source = row?.source ? String(row.source).trim().slice(0, 128) : '';
+      if (source && !current.source) {
+        current.source = source;
+      }
+      const rowFetchedAt = row?.fetchedAt ? String(row.fetchedAt).trim().slice(0, 64) : '';
+      if (rowFetchedAt && rowFetchedAt > current.fetched_at) {
+        current.fetched_at = rowFetchedAt;
+      }
+      if (row?.raw && typeof row.raw === 'object') {
+        current.raw_json = JSON.stringify(row.raw);
+      }
+      if (row?.isEstimated) {
+        current.is_estimated = 1;
+      }
+
+      const totalUsage = Number(row?.totalUsage);
+      if (Number.isFinite(totalUsage)) {
+        current.total_usage = Number(current.total_usage || 0) + totalUsage;
+      }
+      const ingestUsage = Number(row?.ingestUsage);
+      if (Number.isFinite(ingestUsage)) {
+        current.ingest_usage = Number(current.ingest_usage || 0) + ingestUsage;
+      }
+      const queryUsage = Number(row?.queryUsage);
+      if (Number.isFinite(queryUsage)) {
+        current.query_usage = Number(current.query_usage || 0) + queryUsage;
+      }
+      const activeSeries = Number(row?.activeSeries);
+      if (Number.isFinite(activeSeries)) {
+        current.active_series = Number(current.active_series || 0) + activeSeries;
+      }
+      const dpm = Number(row?.dpm);
+      if (Number.isFinite(dpm)) {
+        current.dpm = Number(current.dpm || 0) + dpm;
+      }
+      const amountDue = Number(row?.amountDue);
+      if (Number.isFinite(amountDue)) {
+        current.amount_due = Number(current.amount_due || 0) + amountDue;
+      }
+
+      aggregated.set(key, current);
+    }
+
+    for (const row of aggregated.values()) {
+      upsertStmt.run(row);
+      upserted += 1;
+    }
+  });
+
+  tx();
+
+  return {
+    vendorId,
+    upserted,
+    deleted
+  };
+}
+
+function listGrafanaCloudDailyIngest(filters = {}) {
+  const where = [];
+  const args = [];
+
+  if (filters.vendorId) {
+    where.push('g.vendor_id = ?');
+    args.push(String(filters.vendorId).trim());
+  }
+  if (filters.provider) {
+    where.push('g.provider = ?');
+    args.push(normalizeProvider(filters.provider));
+  }
+  if (filters.periodStart) {
+    const periodStart = normalizeDateOnly(filters.periodStart);
+    if (periodStart) {
+      where.push('g.usage_date >= ?');
+      args.push(periodStart);
+    }
+  }
+  if (filters.periodEnd) {
+    const periodEnd = normalizeDateOnly(filters.periodEnd);
+    if (periodEnd) {
+      where.push('g.usage_date <= ?');
+      args.push(periodEnd);
+    }
+  }
+  if (filters.dimensionKey) {
+    where.push('g.dimension_key = ?');
+    args.push(normalizeGrafanaDimensionKey(filters.dimensionKey));
+  }
+  if (filters.stackSlug) {
+    where.push('g.stack_slug = ?');
+    args.push(normalizeGrafanaStackSlug(filters.stackSlug));
+  }
+
+  const limit = Number.isFinite(Number(filters.limit))
+    ? Math.min(100_000, Math.max(1, Number(filters.limit)))
+    : 20_000;
+
+  const rows = db
+    .prepare(
+      `
+      SELECT
+        g.vendor_id,
+        g.provider,
+        g.account_id,
+        g.org_slug,
+        g.usage_date,
+        g.dimension_key,
+        g.dimension_name,
+        g.stack_slug,
+        g.stack_name,
+        g.unit,
+        g.total_usage,
+        g.ingest_usage,
+        g.query_usage,
+        g.active_series,
+        g.dpm,
+        g.amount_due,
+        g.currency,
+        g.is_estimated,
+        g.source,
+        g.raw_json,
+        g.fetched_at,
+        g.updated_at,
+        v.name AS vendor_name
+      FROM grafana_cloud_ingest_daily g
+      LEFT JOIN vendors v ON v.id = g.vendor_id
+      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+      ORDER BY g.usage_date DESC, g.stack_slug COLLATE NOCASE, g.dimension_key
+      LIMIT ${limit}
+    `
+    )
+    .all(...args);
+
+  return rows.map((row) => ({
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_name || null,
+    provider: row.provider,
+    accountId: row.account_id,
+    orgSlug: row.org_slug,
+    usageDate: row.usage_date,
+    dimensionKey: row.dimension_key,
+    dimensionName: row.dimension_name,
+    stackSlug: row.stack_slug,
+    stackName: row.stack_name,
+    unit: row.unit,
+    totalUsage: row.total_usage === null || row.total_usage === undefined ? null : Number(row.total_usage),
+    ingestUsage: row.ingest_usage === null || row.ingest_usage === undefined ? null : Number(row.ingest_usage),
+    queryUsage: row.query_usage === null || row.query_usage === undefined ? null : Number(row.query_usage),
+    activeSeries: row.active_series === null || row.active_series === undefined ? null : Number(row.active_series),
+    dpm: row.dpm === null || row.dpm === undefined ? null : Number(row.dpm),
+    amountDue: row.amount_due === null || row.amount_due === undefined ? null : Number(row.amount_due),
+    currency: row.currency || null,
+    isEstimated: Number(row.is_estimated) === 1,
+    source: row.source || null,
+    raw: safeJsonParse(row.raw_json, null),
+    fetchedAt: row.fetched_at || null,
+    updatedAt: row.updated_at || null
+  }));
+}
+
 function getAppSetting(keyRaw) {
   const key = String(keyRaw || '').trim();
   if (!key) {
@@ -1308,6 +1707,8 @@ module.exports = {
   replaceCloudMetricsLatest,
   listCloudMetricsLatest,
   summarizeCloudMetricsProviders,
+  replaceGrafanaCloudDailyIngest,
+  listGrafanaCloudDailyIngest,
   getAppSetting,
   upsertAppSetting,
   deleteAppSetting

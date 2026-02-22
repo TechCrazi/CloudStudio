@@ -10,16 +10,19 @@ CloudStudio is a single, unified control plane for multi-cloud pricing, billing,
 CloudStudio mounts all modules in-process and exposes them through one unified UI:
 
 - `Dashboard` (cross-cloud summary)
-- `Storage` (embedded CloudStorageStudio functionality)
-- `IP Address` (global IP mapping/resolution)
 - `Pricing` (embedded CloudPriceStudio calculator)
 - `Billing` (provider/account totals, resource-type drilldown, export, trend, tag filtering)
 - `Billing Backfill` (historical pull controls/status)
-- `Tags` (resource tag viewer/editor with cloud sync where supported)
-- `Utilization`
-- `Live View`
+- `Storage` (embedded CloudStorageStudio functionality)
+- `Live View (VSAx)` (real-time VSAx device health table)
 - `Security`
-- `Vendors`
+- `IP Address` (global IP mapping/resolution + discovery/inherit flow)
+- `Cloud Metrics` (Azure/AWS/Rackspace metrics catalog)
+- `Cloud Database` (Azure SQL/AWS RDS inventory + health snapshot view)
+- `Grafana-Cloud` (daily ingest usage + billed usage sync, stored in DB)
+- `Firewall` (CheckMK-backed firewall + VPN status)
+- `Tags` (resource tag viewer/editor with cloud sync where supported)
+- `Admin` (vendor onboarding, app config, users, API keys, backup)
 - `API Docs`
 
 ## Architecture
@@ -34,6 +37,10 @@ CloudStudio mounts all modules in-process and exposes them through one unified U
   - `src/modules/ip-address/server.js`
   - `src/modules/billing/server.js`
   - `src/modules/tag/server.js`
+  - `src/modules/grafana-cloud/server.js`
+  - `src/modules/firewall/server.js`
+- Cloud Database routes are mounted from:
+  - `src/modules/cloud-database/server.js`
 
 ## Project layout
 
@@ -44,13 +51,16 @@ CloudStudio/
     server.js               # Main API + auth + module orchestration
     db.js                   # Shared DB schema and data access
     auth.js                 # Login/session + user store
-    connectors/billing.js   # Azure/AWS/GCP/Rackspace billing pulls
+    connectors/billing.js   # Azure/AWS/GCP/SendGrid/Rackspace/Wasabi/Grafana billing pulls
     modules/
       storage/              # Embedded storage engine
       pricing/              # Embedded pricing engine
       billing/              # Billing API module
       tag/                  # Tag API module
       ip-address/           # IP map module
+      grafana-cloud/        # Grafana billed usage + daily ingest module
+      firewall/             # CheckMK firewall/VPN module
+      cloud-database/       # Cloud DB provider view API
   data/
     cloudstudio.db          # Master database
 ```
@@ -86,169 +96,79 @@ Note: direct module routes under `/apps/*` are intentionally redirected to `/` s
 - Billing scope/preset/collapse state persists across refresh.
 - Drawer includes live `Service Modules` health indicators.
 - Vendor credentials are encrypted at rest before DB write.
+- Runtime App Config is managed in Admin UI and encrypted at rest.
 - Unified private APIs are auth-protected; public APIs require `x-api-key`.
+- AWS account resolution is vendor-first (Admin -> Vendor onboarding), with env-based AWS keys/JSON used only as fallback.
 
-## Environment model (single `.env`)
+## Environment model (minimal `.env` + DB runtime config)
 
-CloudStudio uses one env file at repo root for all modules.
+CloudStudio now uses a minimal bootstrap `.env` and stores most runtime/module settings in DB via Admin UI.
 
-### Required baseline
+### Minimal required env
 
-- `PORT` or `CLOUDSTUDIO_PORT`
+- `CLOUDSTUDIO_PORT` (or `PORT`)
 - `CLOUDSTUDIO_SECRET_KEY`
-- `APP_AUTH_USERS` (or `APP_LOGIN_USER` + `APP_LOGIN_PASSWORD`)
-- `CLOUDSTUDIO_DB_FILE` / `SQLITE_PATH` (defaults to `./data/cloudstudio.db`)
+- `CLOUDSTUDIO_DB_FILE` (defaults to `./data/cloudstudio.db`)
+- `APP_AUTH_USERS` (bootstrap admin user)
 
-### Branding
+### Runtime settings in DB (Admin)
 
-- `CLOUDSTUDIO_BRAND_LOGIN` controls login page brand (`Company Name|INITIALS`)
-- `CLOUDSTUDIO_BRAND_MAIN` controls main app header brand (`Company Name|INITIALS`)
-- JSON is also supported:
-  - `{"name":"My Company","initials":"MC"}`
+Admin path: `Admin -> App config`.
 
-### Azure (billing + tagging + storage)
+- Branding (login + main header)
+- Runtime env overrides (`KEY=value`) for module/provider tuning
+- Saved encrypted in `app_settings` (ciphertext payload)
+- Applied in-memory without app restart for root scheduler/runtime settings
 
-- `AZURE_CLIENT_ID`
-- `AZURE_CLIENT_SECRET`
-- `AZURE_TENANT_ID`
-- Vendor-level Azure credentials can also be set from the UI (recommended for multi-subscription setups).
+### Configuration key reference
 
-### AWS (multi-account)
+- In app (Admin): `Admin -> App config -> Open App Config Keys Reference`
+- Direct URL: `/docs/app-config-keys.md`
+- Repo document: `docs/APP_CONFIG_KEYS.md`
 
-- `AWS_ACCOUNTS_JSON` supports multiple accounts and is used to auto-create billing vendors when missing.
-- `AWS_PRICING_ACCOUNT_ID` chooses which account from `AWS_ACCOUNTS_JSON` is used for pricing API pulls.
+When env/config keys change:
 
-Example:
-
-```json
-[
-  {
-    "accountId": "123456789012",
-    "displayName": "Prod",
-    "accessKeyId": "AKIA...",
-    "secretAccessKey": "..."
-  },
-  {
-    "accountId": "210987654321",
-    "displayName": "Dev",
-    "profile": "dev-profile"
-  }
-]
+```bash
+npm run docs:app-config-keys
 ```
 
-### Cloud Metrics (Azure + AWS + Rackspace)
+Then commit both:
 
-- `CLOUD_METRICS_SYNC_ENABLED=true`
-- `CLOUD_METRICS_SYNC_INTERVAL_MS=300000` (default 5 minutes)
-- `CLOUD_METRICS_SYNC_RUN_ON_STARTUP=true`
-- Provider toggles:
-  - `CLOUD_METRICS_AZURE=true|false`
-  - `CLOUD_METRICS_AWS=true|false`
-  - `CLOUD_METRICS_RACKSPACE=true|false`
-- Azure tuning:
-  - `CLOUD_METRICS_AZURE_CONCURRENCY`
-  - `CLOUD_METRICS_AZURE_MAX_RESOURCES`
-  - `CLOUD_METRICS_AZURE_LOOKBACK_MINUTES`
-- AWS tuning:
-  - `CLOUD_METRICS_AWS_CONCURRENCY`
-  - `CLOUD_METRICS_AWS_MAX_RETRIES`
-  - `CLOUD_METRICS_AWS_LOOKBACK_MINUTES`
-  - `CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT`
-  - `CLOUD_METRICS_AWS_NAMESPACES` (optional, CSV or JSON array)
-  - `CLOUD_METRICS_AWS_REGIONS` (optional, CSV or JSON array)
-- Rackspace tuning:
-  - `CLOUD_METRICS_RACKSPACE_CONCURRENCY`
-  - `CLOUD_METRICS_RACKSPACE_PAGE_SIZE`
-  - `CLOUD_METRICS_RACKSPACE_MAX_ENTITIES`
-  - `CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK`
-  - `CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES`
-  - `CLOUD_METRICS_RACKSPACE_PLOT_POINTS`
-  - `CLOUD_METRICS_RACKSPACE_TIMEOUT_MS`
-  - `CLOUD_METRICS_RACKSPACE_MAX_RETRIES`
+- `docs/APP_CONFIG_KEYS.md`
+- `public/docs/app-config-keys.md`
+- `README.md` (if section paths or behavior changed)
 
-Notes:
+### Provider credential precedence (important)
 
-- If `CLOUD_METRICS_AWS_REGIONS` is not set, CloudStudio uses account-defined regions from `AWS_ACCOUNTS_JSON` (`metricRegions`/`cloudWatchRegion`/`region` and `efsRegions` fallback).
-- Rackspace cloud metrics use Rackspace Cloud Monitoring (`rax:monitor`) endpoints for entities/checks/metric plots.
-- Scheduled/startup cloud-metrics sync runs for all configured and enabled supported providers (`azure`, `aws`, `rackspace`).
+- AWS integrations (storage, pricing, billing label mapping, cloud metrics) now resolve accounts from **Vendor onboarding first**.
+- Legacy `AWS_ACCOUNTS_JSON` / direct `AWS_*` env values are still supported as fallback for bootstrap/migration.
+- Wasabi integrations still support `WASABI_ACCOUNTS_JSON` and direct keys; prefer storing provider credentials in `Admin -> Vendor onboarding` for long-term management.
 
-### Rackspace (multi-account)
+### Import/export app config
 
-- `RACKSPACE_ACCOUNTS_JSON` supports multiple Rackspace accounts.
-- Fallback single-account vars:
-  - `RACKSPACE_USERNAME`
-  - `RACKSPACE_API_KEY`
-  - `RACKSPACE_ACCOUNT_ID`
-  - `RACKSPACE_BILLING_BASE_URL`
-  - `RACKSPACE_IDENTITY_URL`
+Admin can export/import one unencrypted JSON bundle:
 
-Example:
+- `runtimeConfig` (branding + env overrides)
+- `dbBackupConfig` (including credentials)
+- `vendors` (including credentials)
 
-```json
-[
-  {
-    "accountId": "030-34972734591",
-    "displayName": "ELLKAY LLC (USD)",
-    "username": "your-rackspace-user",
-    "apiKey": "your-rackspace-api-key"
-  }
-]
-```
-
-### Billing scheduler/backfill controls
-
-- `BILLING_AUTO_SYNC_ENABLED=true`
-- `BILLING_AUTO_SYNC_INTERVAL_MS=86400000` (24h)
-- `BILLING_AUTO_SYNC_RUN_ON_STARTUP=true`
-- `BILLING_AUTO_SYNC_ONLY_MISSING=true`
-- `BILLING_AUTO_SYNC_LOOKBACK_MONTHS=24`
-- `BILLING_STARTUP_BACKFILL_MISSING_ENABLED=true`
-- `BILLING_STARTUP_BACKFILL_MISSING_MONTHS=12`
-- `RACKSPACE_REQUIRE_DETAIL_CSV=true` (strict mode for Rackspace device-level data)
+On import, sensitive values are re-encrypted before DB write.
 
 ### DB backup scheduler (S3-compatible)
 
-CloudStudio can take SQLite backups and upload them to any S3-compatible target (Wasabi, AWS S3, and compatible endpoints).
+Admin path: `Admin -> Backup`.
 
-- `DB_BACKUP_ENABLED=true`
-- `DB_BACKUP_BUCKET=your-wasabi-bucket`
-- `DB_BACKUP_PREFIX=cloudstudio-db-backups`
-- `DB_BACKUP_REGION=us-east-1`
-- `DB_BACKUP_ENDPOINT=https://s3.wasabisys.com`
-- `DB_BACKUP_ACCESS_KEY_ID=...` (falls back to `WASABI_ACCESS_KEY`)
-- `DB_BACKUP_SECRET_ACCESS_KEY=...` (falls back to `WASABI_SECRET_KEY`)
-- `DB_BACKUP_INTERVAL_MS=3600000` (hourly)
-- `DB_BACKUP_RUN_ON_STARTUP=true`
-- `DB_BACKUP_RETENTION_DAYS=15`
-- `DB_BACKUP_APPLY_LIFECYCLE=true`
-- `DB_BACKUP_LIFECYCLE_RULE_ID=cloudstudio-db-backup-retention`
-- `DB_BACKUP_TMP_DIR=./data/tmp-backups`
-- `DB_BACKUP_QUEUE_DIR=./data/tmp-backups/queue`
-- `DB_BACKUP_COMPRESS=true` (gzip `.sqlite.gz` upload)
-- `DB_BACKUP_COMPRESSION_LEVEL=6` (1-9)
-- `DB_BACKUP_VERIFY_QUICK_CHECK=true`
-- `DB_BACKUP_UPLOAD_MANIFEST=true`
-- `DB_BACKUP_RETRY_BATCH_SIZE=3`
-- `DB_BACKUP_MAX_QUEUED_FILES=336`
-
-Behavior:
-
-- Backups are created from SQLite using `better-sqlite3` backup API for consistency.
-- Backups are gzip-compressed by default before upload (`.sqlite.gz`).
-- Uploaded object keys use timestamped filenames under `DB_BACKUP_PREFIX`.
-- A JSON manifest (`*.manifest.json`) is uploaded with checksum + size metadata.
-- If S3/Wasabi is unavailable, backups are queued locally and retried automatically on the next runs.
-- Queue retention is capped (`DB_BACKUP_MAX_QUEUED_FILES`) so the app keeps running without crashing.
-- Queue-only backup runs are marked as `degraded` (not fatal) so CloudStudio continues serving normally.
-- Lifecycle retention is enforced by creating/updating one lifecycle rule for the configured prefix.
-- If lifecycle API permissions are missing, backup upload still succeeds and logs a lifecycle warning.
-- Config precedence is env-first: if a `DB_BACKUP_*` env var is set, it overrides Admin UI values; missing env vars fall back to saved Admin UI config.
-- Admin UI path: `Admin -> Backup`.
+- Supports Wasabi/AWS/any S3-compatible endpoint
+- SQLite backup API + gzip compression + manifest upload
+- Local queue retry when S3 target is unavailable
+- Lifecycle retention support
+- Env-first precedence for `DB_BACKUP_*`; missing values fall back to saved Admin config
 
 ## Billing module details (current behavior)
 
-- Providers supported for pull: `azure`, `aws`, `gcp`, `rackspace`.
+- Providers supported for pull: `azure`, `aws`, `gcp`, `sendgrid`, `rackspace`, `wasabi`, `wasabi-main`, `grafana-cloud`.
 - `gcp` currently uses manual fallback amount (`manualMonthlyCost`) unless export integration is added.
+- `grafana-cloud` supports usage-based billing plus flex commit amortization (`usage`, `amortized`, `max` reporting modes).
 - Billing nav is dynamic from configured providers/accounts.
 - Resource table supports:
   - expand/collapse row details
@@ -300,6 +220,10 @@ Behavior:
 - `GET /api/platform/cloud-metrics/providers`
 - `GET /api/platform/cloud-metrics`
 - `POST /api/platform/cloud-metrics/sync`
+- `GET /api/platform/grafana-cloud/vendors`
+- `GET /api/platform/grafana-cloud/status`
+- `GET /api/platform/grafana-cloud/daily-ingest`
+- `POST /api/platform/grafana-cloud/sync`
 - `GET /api/platform/live`
 - `GET /api/platform/security`
 - `POST /api/platform/pricing/compare`
@@ -329,6 +253,10 @@ Behavior:
 - `PUT /api/admin/db-backup/config` (admin only)
 - `GET /api/admin/db-backup/status` (admin only)
 - `POST /api/admin/db-backup/run` (admin only)
+- `GET /api/admin/app-config` (admin only)
+- `PUT /api/admin/app-config` (admin only)
+- `GET /api/admin/app-config/export` (admin only)
+- `POST /api/admin/app-config/import` (admin only)
 
 ### Public APIs (API key required)
 
@@ -336,6 +264,9 @@ Behavior:
 - `GET /api/public/billing`
 - `GET /api/public/cloud-metrics`
 - `GET /api/public/cloud-metrics/resources`
+- `GET /api/public/grafana-cloud/vendors`
+- `GET /api/public/grafana-cloud/status`
+- `GET /api/public/grafana-cloud/daily-ingest`
 - `GET /api/public/security`
 
 Generate keys via:
@@ -354,6 +285,8 @@ Primary tables in `./data/cloudstudio.db`:
 - `ip_aliases`
 - `api_keys`
 - `sync_runs`
+- `app_settings`
+- `grafana_cloud_ingest_daily`
 - `users`
 - `user_state`
 

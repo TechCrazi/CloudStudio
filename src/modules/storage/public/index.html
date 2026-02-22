@@ -272,61 +272,102 @@
           <span id="awsConfigInfo" class="pill small-pill service-pill">No AWS account configured</span>
         </div>
         <p class="muted">Default mode uses low-cost AWS APIs (bucket list + CloudWatch storage/object metrics) plus EFS inventory. Use “Pull security posture” for bucket security settings and Deep scan only when you need full object-walk details.</p>
-        <div class="inline-table-wrap wasabi-totals-wrap">
-          <table class="wasabi-totals-table">
+        <div class="subscriptions-compact">
+          <h3 class="subscriptions-compact-title">AWS account scopes</h3>
+          <div id="awsAccountList" class="checklist subscriptions-checklist"></div>
+          <div class="toolbar subscriptions-toolbar">
+            <button id="saveAwsAccountsBtn" disabled>Save selection</button>
+          </div>
+          <p id="awsScopeHint" class="muted compact-text"></p>
+        </div>
+        <h3 class="subscriptions-compact-title scope-totals-title">Scope totals</h3>
+        <div class="inline-table-wrap scope-totals-wrap">
+          <table class="scope-totals-table">
             <thead>
               <tr>
                 <th>Metric</th>
-                <th>Total</th>
+                <th>Total (24h)</th>
+                <th>Total (30d)</th>
+                <th>Est. cost (24h)</th>
+                <th>Est. cost (30d)</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>Total storage</td>
+                <td>Used capacity</td>
                 <td id="awsTotalStorage">0 B</td>
+                <td id="awsTotalStorage30d">0 B</td>
+                <td id="awsStorageCost24h">$0.00</td>
+                <td id="awsStorageCost30d">$0.00</td>
               </tr>
               <tr>
                 <td>Total objects</td>
                 <td id="awsTotalObjects">0</td>
+                <td id="awsTotalObjects30d">0</td>
+                <td>-</td>
+                <td>-</td>
               </tr>
               <tr>
                 <td>Total EFS file systems</td>
                 <td id="awsTotalEfsCount">0</td>
+                <td id="awsTotalEfsCount30d">0</td>
+                <td>-</td>
+                <td>-</td>
               </tr>
               <tr>
                 <td>Total EFS usage</td>
                 <td id="awsTotalEfsStorage">0 B</td>
+                <td id="awsTotalEfsStorage30d">0 B</td>
+                <td id="awsEfsCost24h">$0.00</td>
+                <td id="awsEfsCost30d">$0.00</td>
               </tr>
               <tr>
                 <td>Egress (24h)</td>
                 <td id="awsTotalEgress24h">-</td>
+                <td>-</td>
+                <td id="awsEgressCost24h">$0.00</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>Egress (30d)</td>
+                <td>-</td>
+                <td id="awsTotalEgress30d">-</td>
+                <td>-</td>
+                <td id="awsEgressCost30d">$0.00</td>
               </tr>
               <tr>
                 <td>Ingress (24h)</td>
                 <td id="awsTotalIngress24h">-</td>
+                <td>-</td>
+                <td id="awsIngressCost24h">$0.00</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>Ingress (30d)</td>
+                <td>-</td>
+                <td id="awsTotalIngress30d">-</td>
+                <td>-</td>
+                <td id="awsIngressCost30d">$0.00</td>
               </tr>
               <tr>
                 <td>Transactions (24h)</td>
                 <td id="awsTotalTransactions24h">-</td>
-              </tr>
-              <tr>
-                <td>Egress (30d)</td>
-                <td id="awsTotalEgress30d">-</td>
-              </tr>
-              <tr>
-                <td>Ingress (30d)</td>
-                <td id="awsTotalIngress30d">-</td>
+                <td>-</td>
+                <td id="awsTransactionsCost24h">$0.00</td>
+                <td>-</td>
               </tr>
               <tr>
                 <td>Transactions (30d)</td>
+                <td>-</td>
                 <td id="awsTotalTransactions30d">-</td>
+                <td>-</td>
+                <td id="awsTransactionsCost30d">$0.00</td>
               </tr>
-              <tr>
-                <td>Estimated cost (24h)</td>
+              <tr class="scope-total-row">
+                <td>Estimated total</td>
+                <td>-</td>
+                <td>-</td>
                 <td id="awsEstimatedCost24h">$0.00</td>
-              </tr>
-              <tr>
-                <td>Estimated cost (30d)</td>
                 <td id="awsEstimatedCost30d">$0.00</td>
               </tr>
             </tbody>
@@ -414,6 +455,79 @@
           <button id="gcpLoadBtn" disabled>Load GCP accounts</button>
         </div>
         <p class="muted">Coming next: multiple GCP account tabs, Cloud Storage inventory, IAM/security checks, and reporting export.</p>
+        <div class="inline-table-wrap scope-totals-wrap">
+          <table class="scope-totals-table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Total (24h)</th>
+                <th>Total (30d)</th>
+                <th>Est. cost (24h)</th>
+                <th>Est. cost (30d)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Used capacity</td>
+                <td id="gcpTotalStorage24h">0 B</td>
+                <td id="gcpTotalStorage30d">0 B</td>
+                <td id="gcpStorageCost24h">$0.00</td>
+                <td id="gcpStorageCost30d">$0.00</td>
+              </tr>
+              <tr>
+                <td>Egress (24h)</td>
+                <td id="gcpTotalEgress24h">0 B</td>
+                <td>-</td>
+                <td id="gcpEgressCost24h">$0.00</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>Egress (30d)</td>
+                <td>-</td>
+                <td id="gcpTotalEgress30d">0 B</td>
+                <td>-</td>
+                <td id="gcpEgressCost30d">$0.00</td>
+              </tr>
+              <tr>
+                <td>Ingress (24h)</td>
+                <td id="gcpTotalIngress24h">0 B</td>
+                <td>-</td>
+                <td id="gcpIngressCost24h">$0.00</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>Ingress (30d)</td>
+                <td>-</td>
+                <td id="gcpTotalIngress30d">0 B</td>
+                <td>-</td>
+                <td id="gcpIngressCost30d">$0.00</td>
+              </tr>
+              <tr>
+                <td>Transactions (24h)</td>
+                <td id="gcpTotalTransactions24h">0</td>
+                <td>-</td>
+                <td id="gcpTransactionsCost24h">$0.00</td>
+                <td>-</td>
+              </tr>
+              <tr>
+                <td>Transactions (30d)</td>
+                <td>-</td>
+                <td id="gcpTotalTransactions30d">0</td>
+                <td>-</td>
+                <td id="gcpTransactionsCost30d">$0.00</td>
+              </tr>
+              <tr class="scope-total-row">
+                <td>Estimated total</td>
+                <td>-</td>
+                <td>-</td>
+                <td id="gcpEstimatedCost24h">$0.00</td>
+                <td id="gcpEstimatedCost30d">$0.00</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p id="gcpTotalsCoverage" class="muted compact-text scope-totals-coverage">Provider integration not implemented yet.</p>
+        <p id="gcpPricingAssumptions" class="muted compact-text scope-pricing-assumptions"></p>
       </section>
 
       <section id="providerPanelWasabi" class="card provider-panel">
@@ -424,29 +538,46 @@
           <span id="wasabiConfigInfo" class="pill small-pill service-pill">No Wasabi account configured</span>
         </div>
         <p class="muted">Uses server-side Wasabi credentials. Data is cached in SQLite and refreshed on demand or every 24 hours.</p>
-        <div class="inline-table-wrap wasabi-totals-wrap">
-          <table class="wasabi-totals-table">
+        <div class="subscriptions-compact">
+          <h3 class="subscriptions-compact-title">Wasabi account scopes</h3>
+          <div id="wasabiAccountList" class="checklist subscriptions-checklist"></div>
+          <div class="toolbar subscriptions-toolbar">
+            <button id="saveWasabiAccountsBtn" disabled>Save selection</button>
+          </div>
+          <p id="wasabiScopeHint" class="muted compact-text"></p>
+        </div>
+        <h3 class="subscriptions-compact-title scope-totals-title">Scope totals</h3>
+        <div class="inline-table-wrap scope-totals-wrap">
+          <table class="scope-totals-table">
             <thead>
               <tr>
                 <th>Metric</th>
-                <th>Total</th>
+                <th>Total (24h)</th>
+                <th>Total (30d)</th>
+                <th>Est. cost (24h)</th>
+                <th>Est. cost (30d)</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>Total storage</td>
+                <td>Used capacity</td>
                 <td id="wasabiTotalStorage">0 B</td>
+                <td id="wasabiTotalStorage30d">0 B</td>
+                <td id="wasabiStorageCost24h">$0.00</td>
+                <td id="wasabiStorageCost30d">$0.00</td>
               </tr>
               <tr>
                 <td>Total objects</td>
                 <td id="wasabiTotalObjects">0</td>
+                <td id="wasabiTotalObjects30d">0</td>
+                <td>-</td>
+                <td>-</td>
               </tr>
-              <tr>
-                <td>Estimated cost (24h)</td>
+              <tr class="scope-total-row">
+                <td>Estimated total</td>
+                <td>-</td>
+                <td>-</td>
                 <td id="wasabiEstimatedCost24h">$0.00</td>
-              </tr>
-              <tr>
-                <td>Estimated cost (30d)</td>
                 <td id="wasabiEstimatedCost30d">$0.00</td>
               </tr>
             </tbody>
@@ -494,34 +625,51 @@
         <p class="muted">Uses server-side VSAx token credentials. If <code>VSAX_GROUPS</code> is empty, groups are auto-discovered from VSAx and you can pick which ones to display/sync.</p>
         <div class="subscriptions-compact">
           <h3 class="subscriptions-compact-title">VSAx groups</h3>
+          <div class="search-row">
+            <input
+              id="vsaxGroupSearchInput"
+              class="search-input"
+              type="search"
+              placeholder="Search VSAx groups for selection"
+            />
+          </div>
           <div id="vsaxGroupList" class="checklist subscriptions-checklist"></div>
           <div class="toolbar subscriptions-toolbar">
             <button id="saveVsaxGroupsBtn" disabled>Save selection</button>
           </div>
         </div>
-        <div class="inline-table-wrap wasabi-totals-wrap">
-          <table class="wasabi-totals-table">
+        <h3 class="subscriptions-compact-title scope-totals-title">Scope totals</h3>
+        <div class="inline-table-wrap scope-totals-wrap">
+          <table class="scope-totals-table">
             <thead>
               <tr>
                 <th>Metric</th>
-                <th>Total</th>
+                <th>Total (24h)</th>
+                <th>Total (30d)</th>
+                <th>Est. cost (24h)</th>
+                <th>Est. cost (30d)</th>
               </tr>
             </thead>
             <tbody>
               <tr>
-                <td>Total allocated</td>
+                <td>Allocated capacity</td>
                 <td id="vsaxTotalAllocated">0 B</td>
+                <td id="vsaxTotalAllocated30d">0 B</td>
+                <td>-</td>
+                <td>-</td>
               </tr>
               <tr>
-                <td>Total used</td>
+                <td>Used capacity</td>
                 <td id="vsaxTotalUsed">0 B</td>
+                <td id="vsaxTotalUsed30d">0 B</td>
+                <td id="vsaxStorageCost24h">$0.00</td>
+                <td id="vsaxStorageCost30d">$0.00</td>
               </tr>
-              <tr>
-                <td>Estimated cost (24h)</td>
+              <tr class="scope-total-row">
+                <td>Estimated total</td>
+                <td>-</td>
+                <td>-</td>
                 <td id="vsaxEstimatedCost24h">$0.00</td>
-              </tr>
-              <tr>
-                <td>Estimated cost (30d)</td>
                 <td id="vsaxEstimatedCost30d">$0.00</td>
               </tr>
             </tbody>

@@ -33,6 +33,10 @@ const {
   getAwsBuckets,
   replaceAwsEfsForAccount,
   getAwsEfs,
+  setSelectedAwsAccountIds,
+  getSelectedAwsAccountIds,
+  setSelectedWasabiAccountIds,
+  getSelectedWasabiAccountIds,
   upsertVsaxGroups,
   setSelectedVsaxGroups,
   getSelectedVsaxGroupNames,
@@ -256,6 +260,20 @@ const tokenProvider = createTokenProvider({
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.resolve(__dirname, '..', 'public')));
 
+app.use('/api/subscriptions', requireStorageProvider('azure'));
+app.use('/api/storage-accounts', requireStorageProvider('azure'));
+app.use('/api/containers', requireStorageProvider('azure'));
+app.use('/api/security', requireStorageProvider('azure'));
+app.use('/api/metrics', requireStorageProvider('azure'));
+app.use('/api/aws', requireStorageProvider('aws'));
+app.use('/api/wasabi', requireStorageProvider('wasabi'));
+app.use('/api/vsax', requireStorageProvider('vsax'));
+app.use('/api/export/csv/azure', requireStorageProvider('azure'));
+app.use('/api/export/csv/aws', requireStorageProvider('aws'));
+app.use('/api/export/csv/wasabi', requireStorageProvider('wasabi'));
+app.use('/api/export/csv/vsax', requireStorageProvider('vsax'));
+app.use('/api/jobs/pull-all', requireStorageProvider('azure'));
+
 if (loggingConfig.httpRequests) {
   app.use((req, res, next) => {
     if (!req.path.startsWith('/api/')) {
@@ -334,6 +352,92 @@ function parseGroupNames(raw) {
     .filter(Boolean);
 }
 
+const STORAGE_PROVIDER_ORDER = ['unified', 'azure', 'aws', 'gcp', 'wasabi', 'vsax', 'other'];
+const STORAGE_PROVIDER_VIEW_MAP = Object.freeze({
+  unified: 'storage-unified',
+  azure: 'storage-azure',
+  aws: 'storage-aws',
+  gcp: 'storage-gcp',
+  wasabi: 'storage-wasabi',
+  vsax: 'storage-vsax',
+  other: 'storage-other'
+});
+
+function normalizeAllowedViews(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    const text = raw.trim();
+    if (!text) {
+      return [];
+    }
+    if (text.startsWith('[')) {
+      try {
+        const parsed = JSON.parse(text);
+        return normalizeAllowedViews(parsed);
+      } catch (_error) {
+        // Fall through to comma-split handling.
+      }
+    }
+    return text
+      .split(',')
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function getStorageUserKey(req) {
+  const username = String(req?.authUser?.username || '').trim().toLowerCase();
+  return username || null;
+}
+
+function getAllowedStorageProviders(req) {
+  if (!req?.authUser) {
+    return [...STORAGE_PROVIDER_ORDER];
+  }
+
+  const allowedViews = normalizeAllowedViews(req.authUser.allowedViews);
+  if (Boolean(req.authUser.isAdmin)) {
+    return [...STORAGE_PROVIDER_ORDER];
+  }
+
+  const providerScoped = STORAGE_PROVIDER_ORDER.filter((provider) => {
+    const viewKey = STORAGE_PROVIDER_VIEW_MAP[provider];
+    return Boolean(viewKey) && allowedViews.includes(viewKey);
+  });
+
+  if (providerScoped.length) {
+    return providerScoped;
+  }
+
+  if (allowedViews.includes('storage')) {
+    return [...STORAGE_PROVIDER_ORDER];
+  }
+
+  return [];
+}
+
+function hasStorageProviderAccess(req, provider) {
+  const normalizedProvider = String(provider || '').trim().toLowerCase();
+  if (!normalizedProvider) {
+    return false;
+  }
+  return getAllowedStorageProviders(req).includes(normalizedProvider);
+}
+
+function requireStorageProvider(provider) {
+  return (req, res, next) => {
+    if (hasStorageProviderAccess(req, provider)) {
+      return next();
+    }
+    return res.status(403).json({
+      error: `Access denied for storage provider: ${provider}`
+    });
+  };
+}
+
 function toCsvScalar(value) {
   if (value === null || value === undefined) {
     return '';
@@ -390,16 +494,67 @@ function parseJsonSafe(raw) {
   }
 }
 
-function resolveExportSubscriptionIds(rawSubscriptionIds) {
+function resolveExportSubscriptionIds(rawSubscriptionIds, userKey = null) {
   const explicitIds = parseSubscriptionIds(rawSubscriptionIds);
   if (explicitIds.length) {
     return explicitIds;
   }
-  const selectedIds = getSelectedSubscriptionIds();
+  const selectedIds = getSelectedSubscriptionIds(userKey);
   if (selectedIds.length) {
     return selectedIds;
   }
   return getSubscriptions().map((subscription) => subscription.subscription_id);
+}
+
+function resolveSelectedAwsAccountIds(rawAccountIds, userKey = null) {
+  const explicitIds = parseAccountIds(rawAccountIds);
+  if (explicitIds.length) {
+    return explicitIds;
+  }
+  const selectedIds = getSelectedAwsAccountIds(userKey);
+  if (selectedIds.length) {
+    return selectedIds;
+  }
+  return getAwsAccounts()
+    .map((account) => String(account?.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function resolveSelectedWasabiAccountIds(rawAccountIds, userKey = null) {
+  const explicitIds = parseAccountIds(rawAccountIds);
+  if (explicitIds.length) {
+    return explicitIds;
+  }
+  const selectedIds = getSelectedWasabiAccountIds(userKey);
+  if (selectedIds.length) {
+    return selectedIds;
+  }
+  return getWasabiAccounts()
+    .map((account) => String(account?.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function toUserScopedAccountRows(accounts = [], selectedIds = []) {
+  const selectedSet = new Set((Array.isArray(selectedIds) ? selectedIds : []).map((id) => String(id || '').trim().toLowerCase()));
+  return (Array.isArray(accounts) ? accounts : []).map((account) => {
+    const accountId = String(account?.account_id || '').trim().toLowerCase();
+    return {
+      ...account,
+      is_selected: selectedSet.has(accountId) ? 1 : 0
+    };
+  });
+}
+
+function toUserScopedSubscriptions(subscriptions, userKey = null) {
+  const rows = Array.isArray(subscriptions) ? subscriptions : [];
+  const selectedIds = new Set(getSelectedSubscriptionIds(userKey).map((id) => String(id || '').trim()));
+  return rows.map((subscription) => {
+    const subscriptionId = String(subscription?.subscription_id || '').trim();
+    return {
+      ...subscription,
+      is_selected: selectedIds.has(subscriptionId) ? 1 : 0
+    };
+  });
 }
 
 function getActivePricingAssumptions() {
@@ -875,7 +1030,7 @@ function resolveVsaxSelectedGroups({ availableGroups = [], requestedGroups = [] 
   return Array.from(new Set(selected));
 }
 
-async function syncVsaxGroupCatalogFromEnv({ throwOnError = false, forceDiscover = false } = {}) {
+async function syncVsaxGroupCatalogFromEnv({ throwOnError = false, forceDiscover = false, userKey = null } = {}) {
   const resolved = resolveVsaxConfig();
   if (resolved.error) {
     logger.warn('VSAx configuration parse failed', {
@@ -927,7 +1082,7 @@ async function syncVsaxGroupCatalogFromEnv({ throwOnError = false, forceDiscover
     }
   }
 
-  let selectedGroups = getSelectedVsaxGroupNames();
+  let selectedGroups = getSelectedVsaxGroupNames(userKey);
   selectedGroups = resolveVsaxSelectedGroups({
     availableGroups,
     requestedGroups: selectedGroups
@@ -935,7 +1090,7 @@ async function syncVsaxGroupCatalogFromEnv({ throwOnError = false, forceDiscover
 
   if (!selectedGroups.length && availableGroups.length) {
     selectedGroups = [...availableGroups];
-    setSelectedVsaxGroups(selectedGroups);
+    setSelectedVsaxGroups(selectedGroups, userKey);
   }
 
   const groupRows = normalizeVsaxGroupRows(getVsaxGroups());
@@ -1090,8 +1245,8 @@ async function syncSingleVsaxGroup({ config, groupName, force = false }) {
   }
 }
 
-async function syncVsaxGroups({ groupNames = [], force = false }) {
-  const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: true });
+async function syncVsaxGroups({ groupNames = [], force = false, userKey = null }) {
+  const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: true, userKey });
   const availableGroups = Array.isArray(catalog.groups) ? catalog.groups : [];
   const selectedGroups = Array.isArray(catalog.selectedGroups) ? catalog.selectedGroups : [];
   const requestedGroups = new Set(parseGroupNames(groupNames));
@@ -1140,7 +1295,7 @@ async function syncVsaxGroups({ groupNames = [], force = false }) {
   const allGroupRows = normalizeVsaxGroupRows(getVsaxGroups());
   const persistedSelectedGroups = resolveVsaxSelectedGroups({
     availableGroups: allGroupRows.map((row) => row.group_name),
-    requestedGroups: getSelectedVsaxGroupNames()
+    requestedGroups: getSelectedVsaxGroupNames(userKey)
   });
   const selectedSet = new Set(persistedSelectedGroups);
 
@@ -2073,7 +2228,7 @@ function startAwsSyncScheduler() {
   void runTick(true);
 }
 
-function createPullAllJob({ subscriptionIds, force }) {
+function createPullAllJob({ subscriptionIds, force, userKey = null }) {
   return {
     id: randomUUID(),
     type: 'pull_all',
@@ -2082,6 +2237,7 @@ function createPullAllJob({ subscriptionIds, force }) {
     startedAt: new Date().toISOString(),
     finishedAt: null,
     subscriptionIds: Array.isArray(subscriptionIds) ? [...subscriptionIds] : [],
+    userKey: String(userKey || '').trim().toLowerCase() || null,
     force: Boolean(force),
     message: 'Initializing',
     totalAccounts: 0,
@@ -2104,6 +2260,18 @@ function getLatestPullAllJob() {
 
 function getRunningPullAllJob() {
   return pullAllJobs.find((job) => job.status === 'running') || null;
+}
+
+function canAccessPullAllJob(job, userKey = null) {
+  if (!job) {
+    return false;
+  }
+  const owner = String(job.userKey || '').trim().toLowerCase();
+  if (!owner) {
+    return true;
+  }
+  const normalizedUserKey = String(userKey || '').trim().toLowerCase();
+  return Boolean(normalizedUserKey) && owner === normalizedUserKey;
 }
 
 function formatJobPayload(job) {
@@ -2572,7 +2740,7 @@ async function runPullAllJob(job) {
 
     let subscriptionIds = job.subscriptionIds;
     if (!subscriptionIds.length) {
-      subscriptionIds = getSelectedSubscriptionIds();
+      subscriptionIds = getSelectedSubscriptionIds(job.userKey || null);
       job.subscriptionIds = subscriptionIds;
     }
     if (!subscriptionIds.length) {
@@ -3031,7 +3199,9 @@ ORDER BY disk.group_name COLLATE NOCASE, COALESCE(disk.device_name, disk.device_
   return db.prepare(query).all(...(hasFilter ? names : []));
 }
 
-app.get('/api/config', (_req, res) => {
+app.get('/api/config', (req, res) => {
+  const userKey = getStorageUserKey(req);
+  const allowedProviders = getAllowedStorageProviders(req);
   const safeClientId = tokenProvider.clientId
     ? `${tokenProvider.clientId.slice(0, 8)}...${tokenProvider.clientId.slice(-4)}`
     : null;
@@ -3041,11 +3211,13 @@ app.get('/api/config', (_req, res) => {
   const vsaxGroupRows = normalizeVsaxGroupRows(getVsaxGroups());
   const vsaxSelectedGroups = resolveVsaxSelectedGroups({
     availableGroups: vsaxGroupRows.map((row) => row.group_name),
-    requestedGroups: getSelectedVsaxGroupNames()
+    requestedGroups: getSelectedVsaxGroupNames(userKey)
   });
 
   return res.json({
     authMode: 'service_principal',
+    storageUserKey: userKey,
+    allowedProviders,
     configured: tokenProvider.isConfigured,
     missing: tokenProvider.missing,
     azureClientId: safeClientId,
@@ -3062,6 +3234,7 @@ app.get('/api/config', (_req, res) => {
       accountCount: wasabiConfig.accounts.length,
       syncIntervalHours: wasabiSyncIntervalHours,
       cacheTtlHours: wasabiCacheTtlHours,
+      selectedAccountIds: getSelectedWasabiAccountIds(userKey),
       accounts: wasabiConfig.accounts.map((account) => toPublicWasabiAccount(account)),
       pricingAssumptions: getActiveWasabiPricingAssumptions(),
       pricingSync: {
@@ -3074,6 +3247,7 @@ app.get('/api/config', (_req, res) => {
       accountCount: awsConfig.accounts.length,
       syncIntervalHours: awsSyncIntervalHours,
       cacheTtlHours: awsCacheTtlHours,
+      selectedAccountIds: getSelectedAwsAccountIds(userKey),
       defaultDeepScan: awsDefaultDeepScan,
       defaultRequestMetrics: awsDefaultRequestMetrics,
       defaultSecurityScan: awsDefaultSecurityScan,
@@ -3156,7 +3330,7 @@ app.get('/api/export/csv/azure/subscriptions', (req, res, next) => {
 
 app.get('/api/export/csv/azure/storage-accounts', (req, res, next) => {
   try {
-    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds);
+    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds, getStorageUserKey(req));
     const rows = getStorageAccounts(subscriptionIds).map((account) => ({
       subscription_id: account.subscription_id,
       subscription_name: account.subscription_name || account.subscription_id,
@@ -3223,7 +3397,7 @@ app.get('/api/export/csv/azure/storage-accounts', (req, res, next) => {
 
 app.get('/api/export/csv/azure/containers', (req, res, next) => {
   try {
-    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds);
+    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds, getStorageUserKey(req));
     const rows = getAzureContainerExportRows(subscriptionIds);
 
     sendCsvResponse(res, {
@@ -3249,7 +3423,7 @@ app.get('/api/export/csv/azure/containers', (req, res, next) => {
 
 app.get('/api/export/csv/azure/storage-containers', (req, res, next) => {
   try {
-    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds);
+    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds, getStorageUserKey(req));
     const rows = getAzureStorageContainerExportRows(subscriptionIds);
 
     sendCsvResponse(res, {
@@ -3283,7 +3457,7 @@ app.get('/api/export/csv/azure/storage-containers', (req, res, next) => {
 
 app.get('/api/export/csv/azure/security', (req, res, next) => {
   try {
-    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds);
+    const subscriptionIds = resolveExportSubscriptionIds(req.query.subscriptionIds, getStorageUserKey(req));
     const rows = getAzureSecurityExportRows(subscriptionIds);
 
     sendCsvResponse(res, {
@@ -3319,7 +3493,7 @@ app.get('/api/export/csv/azure/security', (req, res, next) => {
 
 app.get('/api/export/csv/wasabi/accounts', (req, res, next) => {
   try {
-    const accountIds = parseAccountIds(req.query.accountIds);
+    const accountIds = resolveSelectedWasabiAccountIds(req.query.accountIds, getStorageUserKey(req));
     const accountFilter = new Set(accountIds);
     const rows = getWasabiAccounts()
       .filter((account) => !accountFilter.size || accountFilter.has(String(account.account_id || '').trim().toLowerCase()))
@@ -3361,7 +3535,7 @@ app.get('/api/export/csv/wasabi/accounts', (req, res, next) => {
 
 app.get('/api/export/csv/wasabi/buckets', (req, res, next) => {
   try {
-    const accountIds = parseAccountIds(req.query.accountIds);
+    const accountIds = resolveSelectedWasabiAccountIds(req.query.accountIds, getStorageUserKey(req));
     const rows = getWasabiBucketExportRows(accountIds);
     sendCsvResponse(res, {
       filenamePrefix: 'wasabi-buckets',
@@ -3388,7 +3562,7 @@ app.get('/api/export/csv/wasabi/buckets', (req, res, next) => {
 
 app.get('/api/export/csv/aws/accounts', (req, res, next) => {
   try {
-    const accountIds = parseAccountIds(req.query.accountIds);
+    const accountIds = resolveSelectedAwsAccountIds(req.query.accountIds, getStorageUserKey(req));
     const filter = new Set(accountIds);
     const rows = getAwsAccounts()
       .filter((account) => !filter.size || filter.has(String(account.account_id || '').trim().toLowerCase()))
@@ -3452,7 +3626,7 @@ app.get('/api/export/csv/aws/accounts', (req, res, next) => {
 
 app.get('/api/export/csv/aws/buckets', (req, res, next) => {
   try {
-    const accountIds = parseAccountIds(req.query.accountIds);
+    const accountIds = resolveSelectedAwsAccountIds(req.query.accountIds, getStorageUserKey(req));
     const rows = getAwsBucketExportRows(accountIds);
     sendCsvResponse(res, {
       filenamePrefix: 'aws-buckets',
@@ -3548,32 +3722,36 @@ app.get('/api/export/csv/vsax/disks', (req, res, next) => {
   }
 });
 
-app.post('/api/subscriptions/sync', async (_req, res, next) => {
+app.post('/api/subscriptions/sync', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
     logger.info('Subscriptions sync requested');
     const armToken = await tokenProvider.getArmToken();
 
     const subs = await listSubscriptions(armToken);
     upsertSubscriptions(subs);
+    const scopedSubscriptions = toUserScopedSubscriptions(getSubscriptions(), userKey);
     logger.info('Subscriptions sync completed', {
       subscriptionCount: subs.length
     });
-    res.json({ subscriptions: getSubscriptions() });
+    res.json({ subscriptions: scopedSubscriptions });
   } catch (error) {
     next(error);
   }
 });
 
-app.get('/api/subscriptions', (_req, res) => {
-  res.json({ subscriptions: getSubscriptions() });
+app.get('/api/subscriptions', (req, res) => {
+  const userKey = getStorageUserKey(req);
+  res.json({ subscriptions: toUserScopedSubscriptions(getSubscriptions(), userKey) });
 });
 
 app.post('/api/subscriptions/select', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const ids = parseSubscriptionIds(req.body?.subscriptionIds);
-    setSelectedSubscriptions(ids);
-    res.json({ selectedSubscriptionIds: getSelectedSubscriptionIds() });
+    setSelectedSubscriptions(ids, userKey);
+    res.json({ selectedSubscriptionIds: getSelectedSubscriptionIds(userKey) });
   } catch (error) {
     next(error);
   }
@@ -3581,12 +3759,13 @@ app.post('/api/subscriptions/select', (req, res, next) => {
 
 app.post('/api/storage-accounts/sync', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
     const armToken = await tokenProvider.getArmToken();
 
     let subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
     if (!subscriptionIds.length) {
-      subscriptionIds = getSelectedSubscriptionIds();
+      subscriptionIds = getSelectedSubscriptionIds(userKey);
     }
     if (!subscriptionIds.length) {
       return res.status(400).json({ error: 'No subscription selected.' });
@@ -3623,8 +3802,9 @@ app.post('/api/storage-accounts/sync', async (req, res, next) => {
 
 app.get('/api/storage-accounts', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const subscriptionIds = parseSubscriptionIds(req.query.subscriptionIds);
-    const resolvedSubs = subscriptionIds.length ? subscriptionIds : getSelectedSubscriptionIds();
+    const resolvedSubs = subscriptionIds.length ? subscriptionIds : getSelectedSubscriptionIds(userKey);
     res.json({ storageAccounts: getStorageAccounts(resolvedSubs) });
   } catch (error) {
     next(error);
@@ -3664,24 +3844,29 @@ app.post('/api/security/list', (req, res, next) => {
   }
 });
 
-app.get('/api/wasabi/accounts', (_req, res, next) => {
+app.get('/api/wasabi/accounts', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const catalog = syncWasabiAccountCatalogFromEnv({ throwOnError: false });
     if (catalog.error) {
       return res.json({
         configured: false,
         configError: catalog.error,
         accounts: [],
+        selectedAccountIds: [],
         pricingAssumptions: getActiveWasabiPricingAssumptions(),
         pricingSync: {
           ...wasabiPricingSyncState
         }
       });
     }
+    const selectedAccountIds = getSelectedWasabiAccountIds(userKey);
+    const scopedAccounts = toUserScopedAccountRows(getWasabiAccounts(), selectedAccountIds);
     res.json({
       configured: catalog.accounts.length > 0 && !catalog.error,
       configError: catalog.error || null,
-      accounts: getWasabiAccounts(),
+      accounts: scopedAccounts,
+      selectedAccountIds,
       pricingAssumptions: getActiveWasabiPricingAssumptions(),
       pricingSync: {
         ...wasabiPricingSyncState
@@ -3707,11 +3892,30 @@ app.get('/api/wasabi/buckets', (req, res, next) => {
   }
 });
 
+app.post('/api/wasabi/accounts/select', (req, res, next) => {
+  try {
+    const userKey = getStorageUserKey(req);
+    const requestedIds = parseAccountIds(req.body?.accountIds);
+    const availableSet = new Set(
+      getWasabiAccounts()
+        .map((account) => String(account?.account_id || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const scopedIds = requestedIds.filter((id, index) => requestedIds.indexOf(id) === index && availableSet.has(id));
+    setSelectedWasabiAccountIds(scopedIds, userKey);
+    return res.json({ selectedAccountIds: getSelectedWasabiAccountIds(userKey) });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/wasabi/sync', async (req, res, next) => {
   try {
     logger.info('Wasabi sync endpoint requested');
+    const userKey = getStorageUserKey(req);
+    const accountIds = resolveSelectedWasabiAccountIds(req.body?.accountIds, userKey);
     const payload = await syncWasabiAccounts({
-      accountIds: parseSubscriptionIds(req.body?.accountIds),
+      accountIds,
       force: Boolean(req.body?.force)
     });
 
@@ -3727,14 +3931,16 @@ app.post('/api/wasabi/sync', async (req, res, next) => {
   }
 });
 
-app.get('/api/aws/accounts', (_req, res, next) => {
+app.get('/api/aws/accounts', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const catalog = syncAwsAccountCatalogFromEnv({ throwOnError: false });
     if (catalog.error) {
       return res.json({
         configured: false,
         configError: catalog.error,
         accounts: [],
+        selectedAccountIds: [],
         syncIntervalHours: awsSyncIntervalHours,
         cacheTtlHours: awsCacheTtlHours,
         defaultDeepScan: awsDefaultDeepScan,
@@ -3745,10 +3951,13 @@ app.get('/api/aws/accounts', (_req, res, next) => {
         }
       });
     }
+    const selectedAccountIds = getSelectedAwsAccountIds(userKey);
+    const scopedAccounts = toUserScopedAccountRows(getAwsAccounts(), selectedAccountIds);
 
     return res.json({
       configured: catalog.accounts.length > 0 && !catalog.error,
       configError: null,
+      selectedAccountIds,
       syncIntervalHours: awsSyncIntervalHours,
       cacheTtlHours: awsCacheTtlHours,
       defaultDeepScan: awsDefaultDeepScan,
@@ -3757,7 +3966,7 @@ app.get('/api/aws/accounts', (_req, res, next) => {
       pricingAssumptions: {
         ...awsPricingAssumptions
       },
-      accounts: getAwsAccounts()
+      accounts: scopedAccounts
     });
   } catch (error) {
     next(error);
@@ -3774,6 +3983,23 @@ app.get('/api/aws/buckets', (req, res, next) => {
       accountId,
       buckets: getAwsBuckets(accountId)
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/aws/accounts/select', (req, res, next) => {
+  try {
+    const userKey = getStorageUserKey(req);
+    const requestedIds = parseAccountIds(req.body?.accountIds);
+    const availableSet = new Set(
+      getAwsAccounts()
+        .map((account) => String(account?.account_id || '').trim().toLowerCase())
+        .filter(Boolean)
+    );
+    const scopedIds = requestedIds.filter((id, index) => requestedIds.indexOf(id) === index && availableSet.has(id));
+    setSelectedAwsAccountIds(scopedIds, userKey);
+    return res.json({ selectedAccountIds: getSelectedAwsAccountIds(userKey) });
   } catch (error) {
     next(error);
   }
@@ -3797,6 +4023,7 @@ app.get('/api/aws/efs', (req, res, next) => {
 app.post('/api/aws/sync', async (req, res, next) => {
   try {
     logger.info('AWS sync endpoint requested');
+    const userKey = getStorageUserKey(req);
     const deepScan =
       req.body?.deepScan === undefined || req.body?.deepScan === null
         ? awsDefaultDeepScan
@@ -3811,7 +4038,7 @@ app.post('/api/aws/sync', async (req, res, next) => {
         : Boolean(req.body?.includeSecurity);
 
     const payload = await syncAwsAccounts({
-      accountIds: parseSubscriptionIds(req.body?.accountIds),
+      accountIds: resolveSelectedAwsAccountIds(req.body?.accountIds, userKey),
       force: Boolean(req.body?.force),
       deepScan,
       includeRequestMetrics,
@@ -3831,8 +4058,9 @@ app.post('/api/aws/sync', async (req, res, next) => {
 
 app.get('/api/vsax/groups', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const forceDiscover = parseBoolean(req.query.refreshCatalog, false);
-    const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: false, forceDiscover });
+    const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: false, forceDiscover, userKey });
     if (catalog.error) {
       return res.json({
         configured: false,
@@ -3856,7 +4084,7 @@ app.get('/api/vsax/groups', async (req, res, next) => {
     const availableGroups = allGroups.map((row) => row.group_name);
     const selectedGroupNames = resolveVsaxSelectedGroups({
       availableGroups,
-      requestedGroups: getSelectedVsaxGroupNames()
+      requestedGroups: getSelectedVsaxGroupNames(userKey)
     });
     const selectedSet = new Set(selectedGroupNames);
     const visibleGroups = allGroups.filter((row) => selectedSet.has(row.group_name));
@@ -3885,7 +4113,8 @@ app.get('/api/vsax/groups', async (req, res, next) => {
 
 app.post('/api/vsax/groups/select', async (req, res, next) => {
   try {
-    const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: true, forceDiscover: false });
+    const userKey = getStorageUserKey(req);
+    const catalog = await syncVsaxGroupCatalogFromEnv({ throwOnError: true, forceDiscover: false, userKey });
     const availableGroups = Array.isArray(catalog.groups) ? catalog.groups : [];
     const requestedGroups = parseGroupNames(req.body?.groupNames);
 
@@ -3896,10 +4125,10 @@ app.post('/api/vsax/groups/select', async (req, res, next) => {
       });
     }
 
-    setSelectedVsaxGroups(requestedGroups);
+    setSelectedVsaxGroups(requestedGroups, userKey);
     const selectedGroupNames = resolveVsaxSelectedGroups({
       availableGroups,
-      requestedGroups: getSelectedVsaxGroupNames()
+      requestedGroups: getSelectedVsaxGroupNames(userKey)
     });
     const allGroups = normalizeVsaxGroupRows(getVsaxGroups());
     const selectedSet = new Set(selectedGroupNames);
@@ -3931,9 +4160,10 @@ app.get('/api/vsax/disks', (req, res, next) => {
 
 app.get('/api/vsax/devices', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     const requestedGroupNames = parseGroupNames(req.query.groupNames || req.query.groupName || '');
     const useSelected = parseBoolean(req.query.useSelected, true);
-    const selectedGroupNames = getSelectedVsaxGroupNames();
+    const selectedGroupNames = getSelectedVsaxGroupNames(userKey);
     const availableGroupNames = normalizeVsaxGroupRows(getVsaxGroups())
       .map((row) => String(row.group_name || '').trim())
       .filter(Boolean);
@@ -3951,10 +4181,12 @@ app.get('/api/vsax/devices', (req, res, next) => {
 
 app.post('/api/vsax/sync', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     logger.info('VSAx sync endpoint requested');
     const payload = await syncVsaxGroups({
       groupNames: parseGroupNames(req.body?.groupNames),
-      force: Boolean(req.body?.force)
+      force: Boolean(req.body?.force),
+      userKey
     });
 
     return res.json({
@@ -4000,11 +4232,12 @@ app.post('/api/security/sync-account', async (req, res, next) => {
 
 app.post('/api/security/sync-all', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
 
     let subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
     if (!subscriptionIds.length) {
-      subscriptionIds = getSelectedSubscriptionIds();
+      subscriptionIds = getSelectedSubscriptionIds(userKey);
     }
     if (!subscriptionIds.length) {
       return res.status(400).json({ error: 'No subscription selected.' });
@@ -4059,11 +4292,12 @@ app.post('/api/security/sync-all', async (req, res, next) => {
 
 app.post('/api/metrics/sync-all', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
 
     let subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
     if (!subscriptionIds.length) {
-      subscriptionIds = getSelectedSubscriptionIds();
+      subscriptionIds = getSelectedSubscriptionIds(userKey);
     }
     if (!subscriptionIds.length) {
       return res.status(400).json({ error: 'No subscription selected.' });
@@ -4154,19 +4388,22 @@ app.post('/api/containers/sync-account', async (req, res, next) => {
 
 app.post('/api/jobs/pull-all/start', (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
 
     const running = getRunningPullAllJob();
     if (running) {
+      const canViewRunning = canAccessPullAllJob(running, userKey);
       return res.status(409).json({
         error: 'A pull-all job is already running.',
-        job: formatJobPayload(running)
+        job: canViewRunning ? formatJobPayload(running) : null
       });
     }
 
     const job = createPullAllJob({
       subscriptionIds: parseSubscriptionIds(req.body?.subscriptionIds),
-      force: Boolean(req.body?.force)
+      force: Boolean(req.body?.force),
+      userKey
     });
     addPullAllJob(job);
     logger.info('Pull-all job created', {
@@ -4185,18 +4422,21 @@ app.post('/api/jobs/pull-all/start', (req, res, next) => {
 });
 
 app.get('/api/jobs/pull-all/status', (req, res) => {
+  const userKey = getStorageUserKey(req);
   const jobId = typeof req.query.jobId === 'string' ? req.query.jobId : '';
-  const job = jobId ? pullAllJobs.find((candidate) => candidate.id === jobId) || null : getLatestPullAllJob();
+  const visibleJobs = pullAllJobs.filter((candidate) => canAccessPullAllJob(candidate, userKey));
+  const job = jobId ? visibleJobs.find((candidate) => candidate.id === jobId) || null : visibleJobs[0] || null;
   res.json({ job: formatJobPayload(job) });
 });
 
 app.post('/api/containers/sync-all', async (req, res, next) => {
   try {
+    const userKey = getStorageUserKey(req);
     ensureServicePrincipalConfigured();
 
     let subscriptionIds = parseSubscriptionIds(req.body?.subscriptionIds);
     if (!subscriptionIds.length) {
-      subscriptionIds = getSelectedSubscriptionIds();
+      subscriptionIds = getSelectedSubscriptionIds(userKey);
     }
     if (!subscriptionIds.length) {
       return res.status(400).json({ error: 'No subscription selected.' });

@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const express = require("express");
 const Database = require("better-sqlite3");
 const { PricingClient, GetProductsCommand } = require("@aws-sdk/client-pricing");
+const { getAwsAccountConfigs } = require("../../aws-account-config");
 
 function isContainerRuntime() {
   if (fs.existsSync("/.dockerenv")) {
@@ -969,6 +970,7 @@ const GCP_FAMILY_TO_FLAVOR = Object.entries(GCP_FLAVOR_MAP).reduce(
 );
 
 let awsPricingClient = null;
+let awsPricingClientKey = "";
 const awsCache = new Map();
 const awsPublicCache = { loadedAt: 0, data: null };
 const awsPriceListIndexCache = { loadedAt: 0, data: null };
@@ -3346,74 +3348,21 @@ function normalizeAwsPricingAccountKey(value, fallback = "") {
     .replace(/[^a-z0-9_-]+/g, "-");
 }
 
-function parseAwsPricingAccountsFromEnv() {
-  const rawJson = String(process.env.AWS_ACCOUNTS_JSON || "").trim();
-  if (!rawJson) {
-    return [];
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch (error) {
-    console.warn(
-      `[pricing:aws] AWS_ACCOUNTS_JSON is not valid JSON: ${
-        error?.message || String(error)
-      }`
-    );
-    return [];
-  }
-
-  if (!Array.isArray(parsed)) {
-    console.warn(
-      "[pricing:aws] AWS_ACCOUNTS_JSON must be a JSON array of account objects."
-    );
-    return [];
-  }
-
-  const accounts = parsed
-    .map((entry, index) => {
-      if (!entry || typeof entry !== "object") {
-        return null;
-      }
-      const accessKeyId = String(
-        entry.accessKeyId || entry.accessKey || entry.access_key || ""
-      ).trim();
-      const secretAccessKey = String(
-        entry.secretAccessKey || entry.secretKey || entry.secret_key || ""
-      ).trim();
-      if (!accessKeyId || !secretAccessKey) {
-        return null;
-      }
-      const accountId = normalizeAwsPricingAccountKey(
-        entry.accountId || entry.id || entry.name,
-        `aws-${index + 1}`
-      );
-      const displayName =
-        String(entry.displayName || entry.label || entry.name || accountId).trim() ||
-        accountId;
-      return {
-        accountId,
-        displayName,
-        accessKeyId,
-        secretAccessKey,
-        sessionToken:
-          String(entry.sessionToken || entry.session_token || "").trim() || null,
-      };
-    })
-    .filter(Boolean);
-
-  const deduped = new Map();
-  for (const account of accounts) {
-    if (!deduped.has(account.accountId)) {
-      deduped.set(account.accountId, account);
-    }
-  }
-
-  return Array.from(deduped.values());
+function loadAwsPricingAccounts() {
+  return getAwsAccountConfigs({
+    includeEnvFallback: true,
+    includeProfileOnly: false
+  }).map((account) => ({
+    accountId: normalizeAwsPricingAccountKey(account.accountId),
+    displayName: String(account.displayName || account.vendorName || account.accountId || "AWS").trim() || "AWS",
+    vendorName: String(account.vendorName || "").trim() || null,
+    accessKeyId: String(account.accessKeyId || "").trim(),
+    secretAccessKey: String(account.secretAccessKey || "").trim(),
+    sessionToken: String(account.sessionToken || "").trim() || null,
+  }));
 }
 
-function resolveAwsPricingAccountFromEnv(accounts) {
+function resolveAwsPricingAccount(accounts) {
   if (!accounts.length) {
     return null;
   }
@@ -3428,6 +3377,9 @@ function resolveAwsPricingAccountFromEnv(accounts) {
     accounts.find((account) => account.accountId === key) ||
     accounts.find(
       (account) => normalizeAwsPricingAccountKey(account.displayName) === key
+    ) ||
+    accounts.find(
+      (account) => normalizeAwsPricingAccountKey(account.vendorName || "") === key
     );
 
   if (selected) {
@@ -3435,41 +3387,35 @@ function resolveAwsPricingAccountFromEnv(accounts) {
   }
 
   console.warn(
-    `[pricing:aws] AWS_PRICING_ACCOUNT_ID "${requested}" not found in AWS_ACCOUNTS_JSON. Using "${accounts[0].accountId}".`
+    `[pricing:aws] AWS_PRICING_ACCOUNT_ID "${requested}" not found in configured AWS vendors. Using "${accounts[0].accountId}".`
   );
   return accounts[0];
 }
 
-const awsPricingAccountsFromEnv = parseAwsPricingAccountsFromEnv();
-const awsPricingCredentialAccount = resolveAwsPricingAccountFromEnv(
-  awsPricingAccountsFromEnv
-);
-
-function getAwsDefaultCredentialsFromEnv() {
-  const accessKeyId = String(process.env.AWS_DEFAULT_ACCESS_KEY_ID || "").trim();
-  const secretAccessKey = String(
-    process.env.AWS_DEFAULT_SECRET_ACCESS_KEY || ""
-  ).trim();
-  if (!accessKeyId || !secretAccessKey) {
-    return null;
-  }
-
-  const credentials = {
-    accessKeyId,
-    secretAccessKey,
-  };
-  const sessionToken = String(process.env.AWS_DEFAULT_SESSION_TOKEN || "").trim();
-  if (sessionToken) {
-    credentials.sessionToken = sessionToken;
-  }
-  return credentials;
+function getAwsPricingCredentialAccount() {
+  return resolveAwsPricingAccount(loadAwsPricingAccounts());
 }
 
-const awsDefaultCredentials = getAwsDefaultCredentialsFromEnv();
-
 function getAwsPricingClient() {
-  if (awsPricingClient) {
+  const awsPricingCredentialAccount = getAwsPricingCredentialAccount();
+  const credentialKey = awsPricingCredentialAccount
+    ? [
+        awsPricingCredentialAccount.accountId,
+        awsPricingCredentialAccount.accessKeyId,
+        awsPricingCredentialAccount.sessionToken || "",
+      ].join("|")
+    : `ambient|${String(process.env.AWS_PROFILE || "").trim()}|${String(process.env.AWS_ACCESS_KEY_ID || "").trim()}`;
+
+  if (awsPricingClient && awsPricingClientKey === credentialKey) {
     return awsPricingClient;
+  }
+  if (awsPricingClient && awsPricingClientKey !== credentialKey) {
+    try {
+      awsPricingClient.destroy();
+    } catch (_error) {
+      // Ignore client disposal errors.
+    }
+    awsPricingClient = null;
   }
 
   const config = {
@@ -3484,18 +3430,17 @@ function getAwsPricingClient() {
     if (awsPricingCredentialAccount.sessionToken) {
       config.credentials.sessionToken = awsPricingCredentialAccount.sessionToken;
     }
-  } else if (awsDefaultCredentials) {
-    config.credentials = awsDefaultCredentials;
   }
 
   awsPricingClient = new PricingClient(config);
+  awsPricingClientKey = credentialKey;
   return awsPricingClient;
 }
 
 function hasAwsApiCredentials() {
+  const awsPricingCredentialAccount = getAwsPricingCredentialAccount();
   return Boolean(
     awsPricingCredentialAccount ||
-      awsDefaultCredentials ||
     process.env.AWS_PROFILE ||
       (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY)
   );
@@ -6634,7 +6579,7 @@ app.post("/api/compare", async (req, res) => {
       );
       awsResponse.status = "error";
       awsResponse.message =
-        "AWS API key missing. Set AWS_ACCOUNTS_JSON (optionally AWS_PRICING_ACCOUNT_ID), AWS_DEFAULT_ACCESS_KEY_ID/AWS_DEFAULT_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_PROFILE.";
+        "AWS API key missing. Add AWS vendor credentials in Admin -> Vendor onboarding (optionally set AWS_PRICING_ACCOUNT_ID), or use AWS_DEFAULT_ACCESS_KEY_ID/AWS_DEFAULT_SECRET_ACCESS_KEY, AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, or AWS_PROFILE.";
     } else {
       try {
         const rate = await getAwsOnDemandPrice({

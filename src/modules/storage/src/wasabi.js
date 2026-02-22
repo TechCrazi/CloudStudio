@@ -46,6 +46,22 @@ function normalizeUrl(value, fallback) {
   return parsed.toString().replace(/\/$/, '');
 }
 
+function normalizeJsonEnvValue(rawValue) {
+  const text = String(rawValue || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  if (
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2) ||
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2)
+  ) {
+    return text.slice(1, -1).trim();
+  }
+
+  return text;
+}
+
 function parseRetryAfterMs(headerValue) {
   if (!headerValue) {
     return 0;
@@ -194,7 +210,7 @@ function normalizeWasabiAccountConfig(rawAccount, index = 0) {
 }
 
 function getWasabiAccountConfigsFromEnv() {
-  const rawJson = String(process.env.WASABI_ACCOUNTS_JSON || '').trim();
+  const rawJson = normalizeJsonEnvValue(process.env.WASABI_ACCOUNTS_JSON || '');
   let accounts = [];
 
   if (rawJson) {

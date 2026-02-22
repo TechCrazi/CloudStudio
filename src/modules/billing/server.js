@@ -18,6 +18,7 @@ const {
   upsertResourceTag
 } = require('../../db');
 const { decryptJson, encryptJson } = require('../../crypto');
+const { getAwsAccountConfigs, buildAwsAccountLabelLookup } = require('../../aws-account-config');
 const { pullBillingForVendor, resolveBillingRange } = require('../../connectors/billing');
 
 const app = express();
@@ -29,11 +30,22 @@ const BACKFILL_DEFAULT_LOOKBACK_MONTHS = Math.max(
   1,
   Math.min(BACKFILL_MAX_LOOKBACK_MONTHS, Number(process.env.BILLING_BACKFILL_DEFAULT_MONTHS || 48))
 );
-const BILLING_SUPPORTED_PROVIDERS = new Set(['azure', 'aws', 'gcp', 'rackspace', 'wasabi', 'wasabi-main']);
+const BILLING_SUPPORTED_PROVIDERS = new Set([
+  'azure',
+  'aws',
+  'gcp',
+  'grafana-cloud',
+  'sendgrid',
+  'rackspace',
+  'wasabi',
+  'wasabi-main'
+]);
 const BILLING_PROVIDER_LABELS = Object.freeze({
   azure: 'AZURE',
   aws: 'AWS',
   gcp: 'GCP',
+  'grafana-cloud': 'GRAFANA-CLOUD',
+  sendgrid: 'SENDGRID',
   rackspace: 'RACKSPACE',
   wasabi: 'WASABI-WACM',
   'wasabi-wacm': 'WASABI-WACM',
@@ -46,6 +58,11 @@ const WASABI_MAIN_AUTO_TAGS = Object.freeze({
   org: 'lkoasis',
   product: 'lkemrarchive'
 });
+const GRAFANA_CLOUD_AUTO_TAGS = Object.freeze({
+  org: 'corp',
+  product: 'telemetry'
+});
+const TAG_INHERITANCE_CONSENSUS_THRESHOLD = 0.6;
 
 const billingBackfillState = {
   running: false,
@@ -80,7 +97,21 @@ function normalizeProvider(value) {
   if (v === 'wasabi-wacm') {
     return 'wasabi';
   }
-  if (['azure', 'aws', 'gcp', 'rackspace', 'private', 'wasabi', 'wasabi-main', 'vsax', 'other'].includes(v)) {
+  if (
+    [
+      'azure',
+      'aws',
+      'gcp',
+      'grafana-cloud',
+      'sendgrid',
+      'rackspace',
+      'private',
+      'wasabi',
+      'wasabi-main',
+      'vsax',
+      'other'
+    ].includes(v)
+  ) {
     return v;
   }
   return 'other';
@@ -93,6 +124,40 @@ function getBillingProviderLabel(provider) {
 
 function isBillingProvider(value) {
   return BILLING_SUPPORTED_PROVIDERS.has(normalizeProvider(value));
+}
+
+function isVendorHidden(vendor = {}) {
+  const metadata = vendor?.metadata && typeof vendor.metadata === 'object' && !Array.isArray(vendor.metadata) ? vendor.metadata : {};
+  const raw = metadata.hidden;
+  if (typeof raw === 'boolean') {
+    return raw;
+  }
+  if (typeof raw === 'number') {
+    return raw !== 0;
+  }
+  if (typeof raw === 'string') {
+    return ['1', 'true', 'yes', 'y', 'on'].includes(raw.trim().toLowerCase());
+  }
+  return false;
+}
+
+function listConfiguredBillingVendors(options = {}) {
+  const providerFilter = options?.provider ? normalizeProvider(options.provider) : null;
+  const includeHidden = Boolean(options?.includeHidden);
+  return listVendors()
+    .filter((vendor) => isBillingProvider(vendor.provider))
+    .filter((vendor) => (providerFilter ? normalizeProvider(vendor.provider) === providerFilter : true))
+    .filter((vendor) => (includeHidden ? true : !isVendorHidden(vendor)));
+}
+
+function buildVisibleBillingVendorIdSet(provider = null) {
+  const set = new Set();
+  for (const vendor of listConfiguredBillingVendors({ provider, includeHidden: false })) {
+    if (vendor?.id) {
+      set.add(String(vendor.id).trim());
+    }
+  }
+  return set;
 }
 
 function resolveRequestedBillingRange(source = {}) {
@@ -879,9 +944,670 @@ function applyWasabiWacmAccountTagInheritance(vendor, pulled = {}) {
   };
 }
 
+function buildGrafanaCloudLineResourceRef(lineItem = {}, fallbackOrgSlug = '') {
+  const rawResourceRef = String(lineItem?.resourceRef || lineItem?.resource_ref || '').trim();
+  if (rawResourceRef) {
+    return rawResourceRef;
+  }
+  const orgSlug = String(
+    lineItem?.orgSlug ||
+      lineItem?.org ||
+      lineItem?.accountId ||
+      fallbackOrgSlug ||
+      'grafana-cloud'
+  ).trim();
+  const stackPart = String(
+    lineItem?.stackSlug ||
+      lineItem?.stackName ||
+      lineItem?.detailName ||
+      lineItem?.resourceType ||
+      lineItem?.dimensionName ||
+      'usage'
+  ).trim();
+  const dimensionPart = String(
+    lineItem?.dimensionKey ||
+      lineItem?.resourceType ||
+      lineItem?.dimensionName ||
+      lineItem?.itemType ||
+      'usage'
+  ).trim();
+  return `grafana-cloud://${normalizeRackspaceRefSegment(orgSlug)}/${normalizeRackspaceRefSegment(
+    stackPart
+  )}/${normalizeRackspaceRefSegment(dimensionPart)}`;
+}
+
+function collectGrafanaCloudLineItemRefs(vendor, pulled = {}) {
+  if (normalizeProvider(vendor?.provider) !== 'grafana-cloud') {
+    return [];
+  }
+  const lineItems = Array.isArray(pulled?.raw?.lineItems) ? pulled.raw.lineItems : [];
+  if (!lineItems.length) {
+    return [];
+  }
+  const fallbackOrgSlug = String(pulled?.raw?.orgSlug || vendor?.accountId || 'grafana-cloud').trim() || 'grafana-cloud';
+  const fallbackAccountId = String(pulled?.raw?.accountId || vendor?.accountId || fallbackOrgSlug).trim() || null;
+  const refs = new Map();
+  for (const line of lineItems) {
+    const resourceRef = buildGrafanaCloudLineResourceRef(line, fallbackOrgSlug);
+    if (!resourceRef) {
+      continue;
+    }
+    if (!refs.has(resourceRef)) {
+      const accountId = String(line?.accountId || line?.account_id || fallbackAccountId || '').trim() || null;
+      refs.set(resourceRef, {
+        resourceRef,
+        accountId
+      });
+    }
+  }
+  return Array.from(refs.values());
+}
+
+function applyGrafanaCloudAutoTags(vendor, pulled = {}) {
+  const refs = collectGrafanaCloudLineItemRefs(vendor, pulled);
+  if (!refs.length) {
+    return { provider: normalizeProvider(vendor?.provider), scanned: 0, updated: 0 };
+  }
+  let updated = 0;
+  const vendorId = String(vendor?.id || '').trim() || null;
+  for (const row of refs) {
+    const existing = getResourceTag('grafana-cloud', row.resourceRef);
+    const existingTags =
+      existing?.tags && typeof existing.tags === 'object' && !Array.isArray(existing.tags) ? existing.tags : {};
+    const mergedTags = {
+      ...existingTags,
+      ...GRAFANA_CLOUD_AUTO_TAGS
+    };
+    const changed = !existing || Object.keys(GRAFANA_CLOUD_AUTO_TAGS).some(
+      (key) => String(existingTags?.[key] ?? '') !== GRAFANA_CLOUD_AUTO_TAGS[key]
+    );
+    if (!changed) {
+      continue;
+    }
+    upsertResourceTag({
+      provider: 'grafana-cloud',
+      resourceRef: row.resourceRef,
+      vendorId: vendorId || existing?.vendorId || null,
+      accountId: row.accountId || existing?.accountId || null,
+      tags: mergedTags,
+      source: existing?.source || 'local',
+      syncedAt: existing?.syncedAt || null
+    });
+    updated += 1;
+  }
+  return {
+    provider: 'grafana-cloud',
+    scanned: refs.length,
+    updated
+  };
+}
+
+function backfillGrafanaCloudAutoTagsFromSnapshots() {
+  const snapshotRows = db
+    .prepare(
+      `
+      SELECT vendor_id, raw_json
+      FROM billing_snapshots
+      WHERE provider = 'grafana-cloud'
+    `
+    )
+    .all();
+  if (!snapshotRows.length) {
+    return { snapshots: 0, scanned: 0, uniqueResources: 0, updated: 0 };
+  }
+
+  const refs = new Map();
+  let scanned = 0;
+  for (const row of snapshotRows) {
+    const raw = parseJsonSafe(row?.raw_json, {});
+    const lineItems = Array.isArray(raw?.lineItems) ? raw.lineItems : [];
+    if (!lineItems.length) {
+      continue;
+    }
+    const vendorId = String(row?.vendor_id || '').trim() || null;
+    const fallbackOrgSlug = String(raw?.orgSlug || raw?.accountId || 'grafana-cloud').trim() || 'grafana-cloud';
+    const fallbackAccountId = String(raw?.accountId || fallbackOrgSlug).trim() || null;
+    for (const line of lineItems) {
+      const resourceRef = buildGrafanaCloudLineResourceRef(line, fallbackOrgSlug);
+      if (!resourceRef) {
+        continue;
+      }
+      scanned += 1;
+      if (!refs.has(resourceRef)) {
+        const accountId = String(line?.accountId || line?.account_id || fallbackAccountId || '').trim() || null;
+        refs.set(resourceRef, {
+          resourceRef,
+          vendorId,
+          accountId
+        });
+      }
+    }
+  }
+
+  let updated = 0;
+  for (const row of refs.values()) {
+    const existing = getResourceTag('grafana-cloud', row.resourceRef);
+    const existingTags =
+      existing?.tags && typeof existing.tags === 'object' && !Array.isArray(existing.tags) ? existing.tags : {};
+    const mergedTags = {
+      ...existingTags,
+      ...GRAFANA_CLOUD_AUTO_TAGS
+    };
+    const changed = !existing || Object.keys(GRAFANA_CLOUD_AUTO_TAGS).some(
+      (key) => String(existingTags?.[key] ?? '') !== GRAFANA_CLOUD_AUTO_TAGS[key]
+    );
+    if (!changed) {
+      continue;
+    }
+    upsertResourceTag({
+      provider: 'grafana-cloud',
+      resourceRef: row.resourceRef,
+      vendorId: row.vendorId || existing?.vendorId || null,
+      accountId: row.accountId || existing?.accountId || null,
+      tags: mergedTags,
+      source: existing?.source || 'local',
+      syncedAt: existing?.syncedAt || null
+    });
+    updated += 1;
+  }
+
+  return {
+    snapshots: snapshotRows.length,
+    scanned,
+    uniqueResources: refs.size,
+    updated
+  };
+}
+
+function hasNonEmptyTagObject(tags) {
+  if (!tags || typeof tags !== 'object' || Array.isArray(tags)) {
+    return false;
+  }
+  return Object.keys(tags).some((key) => String(key || '').trim());
+}
+
+function normalizeBillingMatchText(value) {
+  const monthYearPattern =
+    /\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+\d{4}\b/gi;
+  return String(value || '')
+    .toLowerCase()
+    .replace(monthYearPattern, ' ')
+    .replace(/\b\d{4}-\d{2}(?:-\d{2})?\b/g, ' ')
+    .replace(/\b\d{1,2}\/\d{1,2}\/\d{4}\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function isWeakBillingDescriptor(value) {
+  const normalized = normalizeBillingMatchText(value);
+  if (!normalized || normalized.length < 4) {
+    return true;
+  }
+  return new Set([
+    'usage',
+    'cost',
+    'charge',
+    'charges',
+    'total',
+    'other',
+    'service',
+    'services',
+    'invoice',
+    'invoice charge',
+    'uncategorized',
+    'storage',
+    'compute'
+  ]).has(normalized);
+}
+
+function normalizeLineItemIdentifier(value) {
+  return normalizeLookupKey(value);
+}
+
+function normalizeBillingRefToken(value, fallback = 'unknown') {
+  const normalized = normalizeBillingMatchText(value);
+  if (!normalized) {
+    return fallback;
+  }
+  return normalizeRackspaceRefSegment(normalized.replace(/\s+/g, '-'));
+}
+
+function buildDerivedBillingResourceRef(detail = {}) {
+  const provider = normalizeProvider(detail?.provider);
+  if (!provider || provider === 'other') {
+    return '';
+  }
+  const accountToken = normalizeRackspaceRefSegment(
+    normalizeLookupKey(detail?.accountId || detail?.vendorId || 'account') || 'account'
+  );
+  const resourceTypeToken = normalizeBillingRefToken(detail?.resourceType || 'uncategorized', 'uncategorized');
+  const detailNameToken = normalizeBillingRefToken(
+    detail?.detailName || detail?.resourceType || detail?.lineItemId || 'line-item',
+    'line-item'
+  );
+  const sourceToken = normalizeBillingRefToken(
+    detail?.sourceType || detail?.itemType || detail?.sectionType || 'usage',
+    'usage'
+  );
+  const parts = [accountToken, resourceTypeToken, detailNameToken, sourceToken];
+  const lineItemToken = normalizeLookupKey(detail?.lineItemId || detail?.invoiceId || '');
+  if (lineItemToken) {
+    parts.push(normalizeRackspaceRefSegment(lineItemToken));
+  }
+  return `${provider}-billing://${parts.join('/')}`;
+}
+
+function ensureBillingDetailResourceRef(detail = {}) {
+  const existingResourceRef = String(detail?.resourceRef || '').trim();
+  if (existingResourceRef) {
+    return {
+      ...detail,
+      resourceRef: existingResourceRef
+    };
+  }
+  return {
+    ...detail,
+    resourceRef: buildDerivedBillingResourceRef(detail)
+  };
+}
+
+function ensureBillingDetailResourceRefs(details = []) {
+  return (Array.isArray(details) ? details : []).map((detail) => ensureBillingDetailResourceRef(detail));
+}
+
+function buildDetailInheritanceKeys(detail = {}) {
+  const accountKey = normalizeLookupKey(detail?.accountId || '');
+  const resourceTypeKey = normalizeBillingMatchText(detail?.resourceType || '');
+  const detailNameKey = normalizeBillingMatchText(detail?.detailName || '');
+  const itemTypeKey = normalizeBillingMatchText(detail?.itemType || '');
+  const sectionTypeKey = normalizeBillingMatchText(detail?.sectionType || '');
+  const sourceTypeKey = normalizeBillingMatchText(detail?.sourceType || '');
+  const lineItemKey = normalizeLineItemIdentifier(detail?.lineItemId || detail?.invoiceId || '');
+
+  const exactKeys = [];
+  const relaxedKeys = [];
+
+  if (lineItemKey) {
+    exactKeys.push(
+      `line-item::${accountKey || 'none'}::${lineItemKey}::${resourceTypeKey || 'none'}::${itemTypeKey || 'none'}`
+    );
+  }
+
+  if (detailNameKey) {
+    exactKeys.push(
+      `name-strict::${accountKey || 'none'}::${resourceTypeKey || 'none'}::${detailNameKey}::${itemTypeKey || 'none'}::${sectionTypeKey || 'none'}::${sourceTypeKey || 'none'}`
+    );
+    if (accountKey && !isWeakBillingDescriptor(detailNameKey)) {
+      relaxedKeys.push(`name-account::${accountKey}::${detailNameKey}`);
+    }
+    if (resourceTypeKey && !isWeakBillingDescriptor(detailNameKey)) {
+      relaxedKeys.push(`name-type::${resourceTypeKey}::${detailNameKey}`);
+    }
+  }
+
+  if (resourceTypeKey && accountKey) {
+    relaxedKeys.push(`type-account::${accountKey}::${resourceTypeKey}`);
+  }
+
+  return {
+    exactKeys,
+    relaxedKeys
+  };
+}
+
+function serializeTagsForInheritance(tags = {}) {
+  const entries = Object.entries(tags)
+    .map(([key, value]) => [String(key || '').trim(), String(value === null || value === undefined ? '' : value).trim()])
+    .filter(([key]) => key.length > 0)
+    .sort((left, right) => left[0].localeCompare(right[0]));
+  return JSON.stringify(entries);
+}
+
+function addTagInheritanceCandidate(index, key, tags) {
+  if (!key || !hasNonEmptyTagObject(tags)) {
+    return;
+  }
+  const existing = index.get(key) || { bySignature: new Map(), totalCount: 0 };
+  const signature = serializeTagsForInheritance(tags);
+  const previous = existing.bySignature.get(signature) || { tags: { ...tags }, count: 0 };
+  previous.count += 1;
+  existing.bySignature.set(signature, previous);
+  existing.totalCount += 1;
+  index.set(key, existing);
+}
+
+function getUniqueTagInheritanceCandidate(index, key) {
+  if (!key) {
+    return null;
+  }
+  const row = index.get(key);
+  if (!row || !(row.bySignature instanceof Map) || row.bySignature.size === 0) {
+    return null;
+  }
+  if (row.bySignature.size === 1) {
+    const first = row.bySignature.values().next().value;
+    const firstTags = first?.tags && typeof first.tags === 'object' && !Array.isArray(first.tags) ? first.tags : null;
+    if (!hasNonEmptyTagObject(firstTags)) {
+      return null;
+    }
+    return { ...firstTags };
+  }
+
+  const totalCount =
+    Number(row.totalCount || 0) ||
+    Array.from(row.bySignature.values()).reduce((sum, entry) => sum + Math.max(1, Number(entry?.count || 0)), 0);
+  if (!Number.isFinite(totalCount) || totalCount <= 0) {
+    return null;
+  }
+
+  const valueVotesByKey = new Map();
+  for (const entry of row.bySignature.values()) {
+    const tags = entry?.tags && typeof entry.tags === 'object' && !Array.isArray(entry.tags) ? entry.tags : {};
+    const entryCount = Math.max(1, Number(entry?.count || 0));
+    for (const [keyRaw, valueRaw] of Object.entries(tags)) {
+      const normalizedKey = String(keyRaw || '').trim();
+      const normalizedValue = String(valueRaw === null || valueRaw === undefined ? '' : valueRaw).trim();
+      if (!normalizedKey || !normalizedValue) {
+        continue;
+      }
+      const votes = valueVotesByKey.get(normalizedKey) || new Map();
+      votes.set(normalizedValue, (votes.get(normalizedValue) || 0) + entryCount);
+      valueVotesByKey.set(normalizedKey, votes);
+    }
+  }
+
+  const consensusTags = {};
+  for (const [tagKey, voteMap] of valueVotesByKey.entries()) {
+    const [topValue, topVotes] = Array.from(voteMap.entries()).sort((left, right) => right[1] - left[1])[0] || [];
+    if (!topValue || !Number.isFinite(topVotes)) {
+      continue;
+    }
+    if (topVotes / totalCount >= TAG_INHERITANCE_CONSENSUS_THRESHOLD) {
+      consensusTags[tagKey] = topValue;
+    }
+  }
+
+  if (!hasNonEmptyTagObject(consensusTags)) {
+    return null;
+  }
+  return consensusTags;
+}
+
+function buildTagInheritanceLookupFromDetails(provider, details = []) {
+  const normalizedProvider = normalizeProvider(provider);
+  const exactIndex = new Map();
+  const relaxedIndex = new Map();
+  const tagCache = new Map();
+  let taggedSourceRows = 0;
+
+  for (const detail of Array.isArray(details) ? details : []) {
+    const resourceRef = String(detail?.resourceRef || '').trim();
+    if (!resourceRef) {
+      continue;
+    }
+    let tagRow = tagCache.get(resourceRef);
+    if (!tagRow) {
+      tagRow = getResourceTag(normalizedProvider, resourceRef);
+      tagCache.set(resourceRef, tagRow || null);
+    }
+    const tags = tagRow?.tags && typeof tagRow.tags === 'object' && !Array.isArray(tagRow.tags) ? tagRow.tags : null;
+    if (!hasNonEmptyTagObject(tags)) {
+      continue;
+    }
+    taggedSourceRows += 1;
+    const keys = buildDetailInheritanceKeys(detail);
+    for (const key of keys.exactKeys) {
+      addTagInheritanceCandidate(exactIndex, key, tags);
+    }
+    for (const key of keys.relaxedKeys) {
+      addTagInheritanceCandidate(relaxedIndex, key, tags);
+    }
+  }
+
+  return {
+    exactIndex,
+    relaxedIndex,
+    taggedSourceRows
+  };
+}
+
+function findRecentVendorSnapshotsForTagInheritance(vendorId, provider, periodStart, limit = 6) {
+  const normalizedVendorId = String(vendorId || '').trim();
+  const normalizedProvider = normalizeProvider(provider);
+  const normalizedPeriodStart = String(periodStart || '').trim();
+  if (!normalizedVendorId || !normalizedPeriodStart) {
+    return [];
+  }
+  const safeLimit = Math.max(1, Math.min(24, Number(limit) || 6));
+  const rows = db
+    .prepare(
+      `
+      SELECT vendor_id, provider, period_start, period_end, currency, raw_json, pulled_at
+      FROM billing_snapshots
+      WHERE vendor_id = ?
+        AND provider = ?
+        AND period_end < ?
+      ORDER BY period_end DESC, pulled_at DESC
+      LIMIT ?
+    `
+    )
+    .all(normalizedVendorId, normalizedProvider, normalizedPeriodStart, safeLimit);
+  return rows.map((row) => ({
+    vendorId: String(row.vendor_id || '').trim() || null,
+    provider: normalizeProvider(row.provider),
+    periodStart: String(row.period_start || '').trim(),
+    periodEnd: String(row.period_end || '').trim(),
+    currency: normalizeCurrencyCode(row.currency || 'USD'),
+    raw: parseJsonSafe(row.raw_json, {}) || {},
+    pulledAt: String(row.pulled_at || '').trim() || null
+  }));
+}
+
+function buildSnapshotFromPulled(vendor, pulled = {}) {
+  return {
+    vendorId: String(vendor?.id || '').trim() || null,
+    provider: normalizeProvider(vendor?.provider),
+    periodStart: String(pulled?.periodStart || '').trim(),
+    periodEnd: String(pulled?.periodEnd || '').trim(),
+    currency: normalizeCurrencyCode(pulled?.currency || 'USD'),
+    raw: pulled?.raw && typeof pulled.raw === 'object' ? pulled.raw : {}
+  };
+}
+
+function applyPreviousPeriodTagInheritance(vendor, pulled = {}) {
+  const snapshot = buildSnapshotFromPulled(vendor, pulled);
+  const provider = normalizeProvider(snapshot.provider);
+  const vendorId = String(snapshot.vendorId || '').trim();
+  if (!provider || provider === 'other' || !vendorId || !snapshot.periodStart) {
+    return { provider, scanned: 0, candidates: 0, matched: 0, updated: 0 };
+  }
+
+  const detailRows = extractSnapshotResourceDetails(snapshot);
+  if (!detailRows.length) {
+    return { provider, scanned: 0, candidates: 0, matched: 0, updated: 0 };
+  }
+
+  const detailByResourceRef = new Map();
+  for (const detail of detailRows) {
+    const resourceRef = String(detail?.resourceRef || '').trim();
+    if (!resourceRef) {
+      continue;
+    }
+    const existing = detailByResourceRef.get(resourceRef);
+    if (!existing || Number(detail?.amount || 0) > Number(existing?.amount || 0)) {
+      detailByResourceRef.set(resourceRef, detail);
+    }
+  }
+  const uniqueDetails = Array.from(detailByResourceRef.values());
+  if (!uniqueDetails.length) {
+    return { provider, scanned: 0, candidates: 0, matched: 0, updated: 0 };
+  }
+
+  const existingTagCache = new Map();
+  const candidates = [];
+  for (const detail of uniqueDetails) {
+    const resourceRef = String(detail?.resourceRef || '').trim();
+    if (!resourceRef) {
+      continue;
+    }
+    const existing = getResourceTag(provider, resourceRef);
+    existingTagCache.set(resourceRef, existing || null);
+    const existingTags =
+      existing?.tags && typeof existing.tags === 'object' && !Array.isArray(existing.tags) ? existing.tags : {};
+    if (hasNonEmptyTagObject(existingTags)) {
+      continue;
+    }
+    candidates.push(detail);
+  }
+  if (!candidates.length) {
+    return { provider, scanned: uniqueDetails.length, candidates: 0, matched: 0, updated: 0 };
+  }
+
+  const priorSnapshots = findRecentVendorSnapshotsForTagInheritance(vendorId, provider, snapshot.periodStart, 6);
+  if (!priorSnapshots.length) {
+    return { provider, scanned: uniqueDetails.length, candidates: candidates.length, matched: 0, updated: 0 };
+  }
+
+  let inheritanceLookup = null;
+  let sourceSnapshot = null;
+  for (const previousSnapshot of priorSnapshots) {
+    const previousDetails = extractSnapshotResourceDetails(previousSnapshot);
+    const candidateLookup = buildTagInheritanceLookupFromDetails(provider, previousDetails);
+    if (candidateLookup.taggedSourceRows > 0) {
+      inheritanceLookup = candidateLookup;
+      sourceSnapshot = previousSnapshot;
+      break;
+    }
+  }
+  if (!inheritanceLookup) {
+    return { provider, scanned: uniqueDetails.length, candidates: candidates.length, matched: 0, updated: 0 };
+  }
+
+  let matched = 0;
+  let updated = 0;
+  for (const detail of candidates) {
+    const keys = buildDetailInheritanceKeys(detail);
+    let inheritedTags = null;
+    for (const key of keys.exactKeys) {
+      inheritedTags = getUniqueTagInheritanceCandidate(inheritanceLookup.exactIndex, key);
+      if (inheritedTags) {
+        break;
+      }
+    }
+    if (!inheritedTags) {
+      for (const key of keys.relaxedKeys) {
+        inheritedTags = getUniqueTagInheritanceCandidate(inheritanceLookup.relaxedIndex, key);
+        if (inheritedTags) {
+          break;
+        }
+      }
+    }
+    if (!inheritedTags || !hasNonEmptyTagObject(inheritedTags)) {
+      continue;
+    }
+    matched += 1;
+
+    const resourceRef = String(detail?.resourceRef || '').trim();
+    if (!resourceRef) {
+      continue;
+    }
+    const existing = existingTagCache.get(resourceRef) || null;
+    const existingTags =
+      existing?.tags && typeof existing.tags === 'object' && !Array.isArray(existing.tags) ? existing.tags : {};
+    const mergedTags = {
+      ...inheritedTags,
+      ...existingTags
+    };
+    if (!hasNonEmptyTagObject(mergedTags)) {
+      continue;
+    }
+    const existingSignature = serializeTagsForInheritance(existingTags);
+    const mergedSignature = serializeTagsForInheritance(mergedTags);
+    if (existing && existingSignature === mergedSignature) {
+      continue;
+    }
+    const stored = upsertResourceTag({
+      provider,
+      resourceRef,
+      vendorId: String(detail?.vendorId || '').trim() || existing?.vendorId || vendorId || null,
+      accountId: String(detail?.accountId || '').trim() || existing?.accountId || String(vendor?.accountId || '').trim() || null,
+      tags: mergedTags,
+      source: existing?.source || 'auto-inherit',
+      syncedAt: existing?.syncedAt || null
+    });
+    existingTagCache.set(resourceRef, stored || existing || null);
+    updated += 1;
+  }
+
+  return {
+    provider,
+    scanned: uniqueDetails.length,
+    candidates: candidates.length,
+    matched,
+    updated,
+    inheritedFromPeriodStart: sourceSnapshot?.periodStart || null,
+    inheritedFromPeriodEnd: sourceSnapshot?.periodEnd || null
+  };
+}
+
+function backfillPreviousPeriodTagInheritanceFromSnapshots() {
+  const rows = db
+    .prepare(
+      `
+      SELECT vendor_id, provider, period_start, period_end, currency, raw_json
+      FROM billing_snapshots
+      WHERE vendor_id IS NOT NULL
+      ORDER BY provider ASC, vendor_id ASC, period_start ASC, period_end ASC, pulled_at ASC
+    `
+    )
+    .all();
+  if (!rows.length) {
+    return { snapshots: 0, candidates: 0, matched: 0, updated: 0 };
+  }
+
+  const vendorCache = new Map();
+  let candidates = 0;
+  let matched = 0;
+  let updated = 0;
+
+  for (const row of rows) {
+    const vendorId = String(row?.vendor_id || '').trim();
+    if (!vendorId) {
+      continue;
+    }
+    let vendor = vendorCache.get(vendorId);
+    if (vendor === undefined) {
+      vendor = getVendorById(vendorId) || {
+        id: vendorId,
+        provider: normalizeProvider(row?.provider),
+        accountId: null
+      };
+      vendorCache.set(vendorId, vendor);
+    }
+    const summary = applyPreviousPeriodTagInheritance(vendor, {
+      periodStart: String(row?.period_start || '').trim(),
+      periodEnd: String(row?.period_end || '').trim(),
+      currency: normalizeCurrencyCode(row?.currency || 'USD'),
+      raw: parseJsonSafe(row?.raw_json, {}) || {}
+    });
+    candidates += Number(summary?.candidates || 0);
+    matched += Number(summary?.matched || 0);
+    updated += Number(summary?.updated || 0);
+  }
+
+  return {
+    snapshots: rows.length,
+    candidates,
+    matched,
+    updated
+  };
+}
+
 function applyBillingAutoTags(vendor, pulled = {}) {
+  applyPreviousPeriodTagInheritance(vendor, pulled);
   applyWasabiMainAutoTags(vendor, pulled);
   applyWasabiWacmAccountTagInheritance(vendor, pulled);
+  applyGrafanaCloudAutoTags(vendor, pulled);
 }
 
 function formatTagsForCsv(tags) {
@@ -1386,19 +2112,28 @@ function mergeRackspaceUsageCsvIntoSnapshots(vendor, parsedCsv, options = {}) {
     const accountNos = Array.from(
       new Set(periodRowsSanitized.map((row) => String(row.accountNo || '').trim()).filter(Boolean))
     );
-
-    const existing = findBillingSnapshotRow(vendorId, 'rackspace', periodStart, periodEnd);
-    if (existing?.id) {
-      const raw = parseJsonSafe(existing.raw_json, {}) || {};
-      raw.rackspaceUsageRows = periodRowsSanitized;
-      raw.rackspaceUsageCsvMeta = {
+    const periodRawPayload = {
+      accountId: vendor.accountId || null,
+      accountName: vendor.name || null,
+      rackspaceUsageRows: periodRowsSanitized,
+      rackspaceUsageCsvMeta: {
         importedAt,
         sourceFileName,
         rowCount: periodRowsSanitized.length,
         billNos,
         accountNos
-      };
-      raw.resourceBreakdown = breakdown;
+      },
+      resourceBreakdown: breakdown
+    };
+
+    const existing = findBillingSnapshotRow(vendorId, 'rackspace', periodStart, periodEnd);
+    if (existing?.id) {
+      const raw = parseJsonSafe(existing.raw_json, {}) || {};
+      raw.accountId = periodRawPayload.accountId;
+      raw.accountName = periodRawPayload.accountName;
+      raw.rackspaceUsageRows = periodRawPayload.rackspaceUsageRows;
+      raw.rackspaceUsageCsvMeta = periodRawPayload.rackspaceUsageCsvMeta;
+      raw.resourceBreakdown = periodRawPayload.resourceBreakdown;
       db.prepare(
         `
         UPDATE billing_snapshots
@@ -1416,23 +2151,17 @@ function mergeRackspaceUsageCsvIntoSnapshots(vendor, parsedCsv, options = {}) {
         currency: periodCurrency,
         amount: periodAmount,
         source: 'rackspace-csv-import',
-        raw: {
-          accountId: vendor.accountId || null,
-          accountName: vendor.name || null,
-          rackspaceUsageRows: periodRowsSanitized,
-          rackspaceUsageCsvMeta: {
-            importedAt,
-            sourceFileName,
-            rowCount: periodRowsSanitized.length,
-            billNos,
-            accountNos
-          },
-          resourceBreakdown: breakdown
-        },
+        raw: periodRawPayload,
         pulledAt: importedAt
       });
       summary.snapshotsInserted += 1;
     }
+    applyBillingAutoTags(vendor, {
+      periodStart,
+      periodEnd,
+      currency: periodCurrency,
+      raw: periodRawPayload
+    });
     summary.rowsImported += periodRowsSanitized.length;
     summary.periods.push({
       periodStart,
@@ -1524,6 +2253,10 @@ function normalizeAwsAccessKey(value) {
   return normalizeLookupKey(value);
 }
 
+function normalizeSendgridApiKey(value) {
+  return normalizeLookupKey(value);
+}
+
 function getColumnIndex(columns = [], candidateNames = []) {
   const normalizedCandidates = candidateNames.map((name) => String(name || '').trim().toLowerCase());
   return columns.findIndex((column) => {
@@ -1552,58 +2285,28 @@ function readAzureSubscriptionNameMap() {
   }
 }
 
-function readAwsAccountLabelMap() {
-  const accountIdMap = new Map();
-  const accessKeyMap = new Map();
-  const labels = [];
-  const rawJson = String(process.env.AWS_ACCOUNTS_JSON || '').trim();
-  if (rawJson) {
-    try {
-      const parsed = JSON.parse(rawJson);
-      if (Array.isArray(parsed)) {
-        for (const row of parsed) {
-          if (!row || typeof row !== 'object') {
-            continue;
-          }
-          const accountId = String(row.accountId || row.id || row.account || '').trim();
-          const label = String(row.displayName || row.label || row.name || row.accountName || accountId).trim();
-          if (label) {
-            labels.push(label);
-          }
-          if (accountId && label) {
-            accountIdMap.set(normalizeLookupKey(accountId), label);
-          }
-          const accessKeys = [
-            row.accessKeyId,
-            row.accessKey,
-            row.awsAccessKeyId,
-            row.keyId
-          ];
-          for (const accessKeyRaw of accessKeys) {
-            const accessKey = normalizeAwsAccessKey(accessKeyRaw);
-            if (!accessKey || !label) {
-              continue;
-            }
-            accessKeyMap.set(accessKey, label);
-          }
-        }
-      }
-    } catch (_error) {
-      // Ignore invalid AWS_ACCOUNTS_JSON and continue with defaults.
-    }
+function normalizeJsonEnvValue(rawValue) {
+  const text = String(rawValue || '').trim();
+  if (!text) {
+    return '';
   }
 
-  const defaultAccountId = String(process.env.AWS_DEFAULT_ACCOUNT_ID || '').trim();
-  const defaultLabel = String(process.env.AWS_DEFAULT_ACCOUNT_LABEL || '').trim();
-  if (defaultAccountId && defaultLabel) {
-    accountIdMap.set(normalizeLookupKey(defaultAccountId), defaultLabel);
-    labels.push(defaultLabel);
+  if (
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2) ||
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2)
+  ) {
+    return text.slice(1, -1).trim();
   }
-  return {
-    accountIdMap,
-    accessKeyMap,
-    labels: Array.from(new Set(labels))
-  };
+
+  return text;
+}
+
+function readAwsAccountLabelMap() {
+  const accounts = getAwsAccountConfigs({
+    includeEnvFallback: true,
+    includeProfileOnly: true
+  });
+  return buildAwsAccountLabelLookup(accounts);
 }
 
 function getAwsCredentialAccessKey(credentials) {
@@ -1620,7 +2323,7 @@ function getAwsCredentialAccessKey(credentials) {
 }
 
 function parseAwsAccountsFromEnv() {
-  const rawJson = String(process.env.AWS_ACCOUNTS_JSON || '').trim();
+  const rawJson = normalizeJsonEnvValue(process.env.AWS_ACCOUNTS_JSON || '');
   if (!rawJson) {
     return [];
   }
@@ -1762,6 +2465,309 @@ function ensureAwsVendorsFromEnv() {
     const createdAccountKey = normalizeLookupKey(createdVendor.accountId || envAccount.accountId);
     if (createdAccountKey) {
       vendorByAccountId.set(createdAccountKey, createdVendor);
+    }
+  }
+
+  return { created };
+}
+
+function parseSendgridAccountsFromEnv() {
+  const accounts = [];
+  const seen = new Set();
+
+  function pushAccount(input = {}) {
+    if (!input || typeof input !== 'object') {
+      return;
+    }
+    const accountId = String(input.accountId || input.account || input.id || '').trim();
+    const displayName = String(
+      input.displayName || input.label || input.name || input.accountName || accountId || 'SendGrid account'
+    ).trim();
+    const apiKey = String(
+      input.apiKey || input.api_key || input.billingApiKey || input.sendgridApiKey || ''
+    ).trim();
+    const billingEndpoint = String(input.billingEndpoint || input.endpoint || input.baseUrl || '').trim();
+    const invoiceMonthOffsetRaw = Number(
+      input.invoiceMonthOffset !== undefined
+        ? input.invoiceMonthOffset
+        : process.env.SENDGRID_BILLING_MONTH_OFFSET
+    );
+    const currency = String(input.currency || process.env.SENDGRID_BILLING_CURRENCY || '').trim().toUpperCase();
+
+    if (!apiKey) {
+      return;
+    }
+
+    const dedupeKey = normalizeLookupKey(
+      `${accountId}|${displayName}|${apiKey.slice(0, 12)}|${apiKey.slice(-8)}`
+    );
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+
+    const credentials = {
+      apiKey,
+      ...(billingEndpoint ? { billingEndpoint } : {}),
+      ...(accountId ? { accountId } : {}),
+      ...(Number.isFinite(invoiceMonthOffsetRaw) ? { invoiceMonthOffset: Math.trunc(invoiceMonthOffsetRaw) } : {}),
+      ...(currency ? { currency } : {})
+    };
+
+    accounts.push({
+      accountId,
+      displayName,
+      credentials
+    });
+  }
+
+  const rawJson = String(process.env.SENDGRID_BILLING_ACCOUNTS_JSON || '').trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed)) {
+        for (const row of parsed) {
+          pushAccount(row);
+        }
+      }
+    } catch (_error) {
+      // Ignore invalid SENDGRID_BILLING_ACCOUNTS_JSON and continue with defaults.
+    }
+  }
+
+  pushAccount({
+    accountId: process.env.SENDGRID_BILLING_ACCOUNT_ID,
+    displayName: process.env.SENDGRID_BILLING_ACCOUNT_LABEL || process.env.SENDGRID_ACCOUNT_LABEL || 'Primary account',
+    apiKey: process.env.SENDGRID_BILLING_API_KEY,
+    billingEndpoint: process.env.SENDGRID_BILLING_ENDPOINT,
+    invoiceMonthOffset: process.env.SENDGRID_BILLING_MONTH_OFFSET,
+    currency: process.env.SENDGRID_BILLING_CURRENCY
+  });
+
+  return accounts;
+}
+
+function ensureSendgridVendorsFromEnv() {
+  const envAccounts = parseSendgridAccountsFromEnv();
+  if (!envAccounts.length) {
+    return { created: 0 };
+  }
+
+  const sendgridVendors = listVendors().filter((vendor) => normalizeProvider(vendor?.provider) === 'sendgrid');
+  const vendorByAccountId = new Map();
+  const vendorByApiKey = new Map();
+
+  for (const vendor of sendgridVendors) {
+    const accountKey = normalizeLookupKey(vendor.accountId);
+    if (accountKey) {
+      vendorByAccountId.set(accountKey, vendor);
+    }
+    const fullVendor = getVendorById(vendor.id);
+    const credentials = decryptJson(fullVendor?.credentialsEncrypted);
+    const apiKey = normalizeSendgridApiKey(
+      credentials?.apiKey || credentials?.api_key || credentials?.billingApiKey || credentials?.sendgridApiKey
+    );
+    if (apiKey) {
+      vendorByApiKey.set(apiKey, vendor);
+    }
+  }
+
+  let created = 0;
+  for (const envAccount of envAccounts) {
+    const accountKey = normalizeLookupKey(envAccount.accountId);
+    const apiKey = normalizeSendgridApiKey(envAccount?.credentials?.apiKey);
+    if (accountKey && vendorByAccountId.has(accountKey)) {
+      continue;
+    }
+    if (apiKey && vendorByApiKey.has(apiKey)) {
+      continue;
+    }
+
+    const display = String(envAccount.displayName || envAccount.accountId || 'Account').trim();
+    const normalizedName = /^sendgrid\s+/i.test(display) ? display : `SendGrid ${display}`;
+    const createdVendor = upsertVendor({
+      name: normalizedName,
+      provider: 'sendgrid',
+      cloudType: 'public',
+      authMethod: 'api_key',
+      accountId: envAccount.accountId || null,
+      metadata: {
+        source: 'sendgrid_env',
+        managedBy: 'cloudstudio-billing',
+        displayName: envAccount.displayName || null
+      },
+      credentialsEncrypted: encryptJson(envAccount.credentials || {})
+    });
+    created += 1;
+
+    const createdAccountKey = normalizeLookupKey(createdVendor.accountId || envAccount.accountId);
+    if (createdAccountKey) {
+      vendorByAccountId.set(createdAccountKey, createdVendor);
+    }
+    const createdApiKey = normalizeSendgridApiKey(envAccount?.credentials?.apiKey);
+    if (createdApiKey) {
+      vendorByApiKey.set(createdApiKey, createdVendor);
+    }
+  }
+
+  return { created };
+}
+
+function parseGrafanaCloudAccountsFromEnv() {
+  const accounts = [];
+  const seen = new Set();
+
+  function pushAccount(input = {}) {
+    if (!input || typeof input !== 'object') {
+      return;
+    }
+    const orgSlug = String(input.orgSlug || input.org || input.slug || input.accountId || '').trim();
+    const accountId = String(input.accountId || orgSlug || '').trim();
+    const displayName = String(
+      input.displayName || input.label || input.name || input.accountName || orgSlug || accountId || 'Grafana Cloud'
+    ).trim();
+    const accessPolicyToken = String(
+      input.accessPolicyToken || input.apiToken || input.apiKey || input.token || ''
+    ).trim();
+    const apiBaseUrl = String(input.apiBaseUrl || input.baseUrl || '').trim();
+    if (!orgSlug || !accessPolicyToken) {
+      return;
+    }
+
+    const dedupeKey = normalizeLookupKey(
+      `${accountId}|${orgSlug}|${displayName}|${accessPolicyToken.slice(0, 12)}|${accessPolicyToken.slice(-8)}`
+    );
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+
+    const credentials = {
+      orgSlug,
+      accessPolicyToken,
+      ...(apiBaseUrl ? { apiBaseUrl } : {})
+    };
+    const optionalCredentialKeys = [
+      'currency',
+      'billingModel',
+      'flexCommitEnabled',
+      'flexCommitAmount',
+      'flexCommitCurrency',
+      'flexCommitStartDate',
+      'flexCommitYears',
+      'flexCommitReportingMode',
+      'flexCommitAutoRenew'
+    ];
+    for (const key of optionalCredentialKeys) {
+      if (!Object.prototype.hasOwnProperty.call(input, key)) {
+        continue;
+      }
+      credentials[key] = input[key];
+    }
+
+    accounts.push({
+      accountId: accountId || null,
+      orgSlug,
+      displayName,
+      credentials
+    });
+  }
+
+  const rawJson = String(process.env.GRAFANA_CLOUD_ACCOUNTS_JSON || '').trim();
+  if (rawJson) {
+    try {
+      const parsed = JSON.parse(rawJson);
+      if (Array.isArray(parsed)) {
+        for (const row of parsed) {
+          pushAccount(row);
+        }
+      }
+    } catch (_error) {
+      // Ignore invalid GRAFANA_CLOUD_ACCOUNTS_JSON and continue with defaults.
+    }
+  }
+
+  pushAccount({
+    accountId: process.env.GRAFANA_CLOUD_ACCOUNT_ID || process.env.GRAFANA_CLOUD_ORG_SLUG,
+    orgSlug: process.env.GRAFANA_CLOUD_ORG_SLUG,
+    displayName: process.env.GRAFANA_CLOUD_ACCOUNT_LABEL || 'Grafana Cloud',
+    accessPolicyToken:
+      process.env.GRAFANA_CLOUD_ACCESS_POLICY_TOKEN ||
+      process.env.GRAFANA_CLOUD_API_TOKEN ||
+      process.env.GRAFANA_CLOUD_API_KEY,
+    apiBaseUrl: process.env.GRAFANA_CLOUD_API_BASE_URL,
+    currency: process.env.GRAFANA_CLOUD_CURRENCY,
+    billingModel: process.env.GRAFANA_CLOUD_BILLING_MODEL,
+    flexCommitEnabled: process.env.GRAFANA_CLOUD_FLEX_COMMIT_ENABLED,
+    flexCommitAmount: process.env.GRAFANA_CLOUD_FLEX_COMMIT_AMOUNT,
+    flexCommitCurrency: process.env.GRAFANA_CLOUD_FLEX_COMMIT_CURRENCY,
+    flexCommitStartDate: process.env.GRAFANA_CLOUD_FLEX_COMMIT_START_DATE,
+    flexCommitYears: process.env.GRAFANA_CLOUD_FLEX_COMMIT_YEARS,
+    flexCommitReportingMode: process.env.GRAFANA_CLOUD_FLEX_COMMIT_REPORTING_MODE,
+    flexCommitAutoRenew: process.env.GRAFANA_CLOUD_FLEX_COMMIT_AUTO_RENEW
+  });
+
+  return accounts;
+}
+
+function ensureGrafanaCloudVendorsFromEnv() {
+  const envAccounts = parseGrafanaCloudAccountsFromEnv();
+  if (!envAccounts.length) {
+    return { created: 0 };
+  }
+
+  const vendors = listVendors().filter((vendor) => normalizeProvider(vendor?.provider) === 'grafana-cloud');
+  const vendorByAccountId = new Map();
+  const vendorByOrgSlug = new Map();
+
+  for (const vendor of vendors) {
+    const accountKey = normalizeLookupKey(vendor.accountId);
+    if (accountKey) {
+      vendorByAccountId.set(accountKey, vendor);
+    }
+    const fullVendor = getVendorById(vendor.id);
+    const credentials = decryptJson(fullVendor?.credentialsEncrypted);
+    const orgSlug = String(credentials?.orgSlug || credentials?.org || credentials?.slug || '').trim();
+    const orgKey = normalizeLookupKey(orgSlug);
+    if (orgKey) {
+      vendorByOrgSlug.set(orgKey, vendor);
+    }
+  }
+
+  let created = 0;
+  for (const envAccount of envAccounts) {
+    const accountKey = normalizeLookupKey(envAccount.accountId);
+    const orgKey = normalizeLookupKey(envAccount.orgSlug);
+    if (accountKey && vendorByAccountId.has(accountKey)) {
+      continue;
+    }
+    if (!accountKey && orgKey && vendorByOrgSlug.has(orgKey)) {
+      continue;
+    }
+
+    const display = String(envAccount.displayName || envAccount.orgSlug || envAccount.accountId || 'Grafana Cloud').trim();
+    const normalizedName = /^grafana cloud\s+/i.test(display) ? display : `Grafana Cloud ${display}`;
+    const createdVendor = upsertVendor({
+      name: normalizedName,
+      provider: 'grafana-cloud',
+      cloudType: 'public',
+      authMethod: 'api_key',
+      accountId: envAccount.accountId || envAccount.orgSlug || null,
+      metadata: {
+        source: 'grafana_cloud_env',
+        managedBy: 'cloudstudio-billing',
+        displayName: envAccount.displayName || null,
+        orgSlug: envAccount.orgSlug || null
+      },
+      credentialsEncrypted: encryptJson(envAccount.credentials || {})
+    });
+    created += 1;
+
+    if (accountKey) {
+      vendorByAccountId.set(accountKey, createdVendor);
+    }
+    if (orgKey) {
+      vendorByOrgSlug.set(orgKey, createdVendor);
     }
   }
 
@@ -2294,17 +3300,23 @@ function ensureWasabiMainVendorsFromEnv() {
 
 function ensureBillingVendorsFromEnv() {
   const aws = ensureAwsVendorsFromEnv();
+  const grafanaCloud = ensureGrafanaCloudVendorsFromEnv();
+  const sendgrid = ensureSendgridVendorsFromEnv();
   const rackspace = ensureRackspaceVendorsFromEnv();
   const wasabi = ensureWasabiVendorsFromEnv();
   const wasabiMain = ensureWasabiMainVendorsFromEnv();
   return {
     created:
       Number(aws?.created || 0) +
+      Number(grafanaCloud?.created || 0) +
+      Number(sendgrid?.created || 0) +
       Number(rackspace?.created || 0) +
       Number(wasabi?.created || 0) +
       Number(wasabiMain?.created || 0),
     updated: Number(rackspace?.updated || 0),
     awsCreated: Number(aws?.created || 0),
+    grafanaCloudCreated: Number(grafanaCloud?.created || 0),
+    sendgridCreated: Number(sendgrid?.created || 0),
     rackspaceCreated: Number(rackspace?.created || 0),
     rackspaceUpdated: Number(rackspace?.updated || 0),
     wasabiCreated: Number(wasabi?.created || 0),
@@ -2341,6 +3353,18 @@ function resolveVendorAccountName(vendor, context = {}) {
     }
     const compactName = name.replace(/^aws\s+/i, '').replace(/^payer\s+/i, '').trim();
     return compactName || accountId || 'AWS account';
+  }
+
+  if (provider === 'sendgrid') {
+    const accountId = String(vendor?.accountId || '').trim();
+    const compactName = name.replace(/^sendgrid\s+/i, '').trim();
+    return compactName || accountId || 'SendGrid account';
+  }
+
+  if (provider === 'grafana-cloud') {
+    const accountId = String(vendor?.accountId || '').trim();
+    const compactName = name.replace(/^grafana cloud\s+/i, '').trim();
+    return compactName || accountId || 'Grafana Cloud account';
   }
 
   if (provider === 'rackspace') {
@@ -2817,6 +3841,90 @@ function extractWasabiResourceDetailRows(snapshot) {
   return details;
 }
 
+function extractSendgridResourceDetailRows(snapshot) {
+  const lineItems = Array.isArray(snapshot?.raw?.lineItems) ? snapshot.raw.lineItems : [];
+  if (!lineItems.length) {
+    return [];
+  }
+
+  const details = [];
+  for (const row of lineItems) {
+    const amount = Number(row?.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+    const resourceType = normalizeBillingResourceType(row?.resourceType || 'Invoice charge');
+    const accountId = String(row?.accountId || snapshot?.raw?.accountId || '').trim() || null;
+    const detailName = String(row?.detailName || row?.invoiceNumber || row?.invoiceId || resourceType)
+      .replace(/\s+/g, ' ')
+      .trim();
+    const resourceRef = String(row?.resourceRef || '').trim();
+    details.push({
+      provider: 'sendgrid',
+      resourceType,
+      detailName: detailName || resourceType,
+      resourceRef,
+      currency: normalizeCurrencyCode(row?.currency || snapshot?.currency || 'USD'),
+      amount,
+      vendorId: snapshot.vendorId || null,
+      accountId,
+      itemType: 'INVOICE',
+      lineItemId: String(row?.id || row?.invoiceId || row?.invoiceNumber || '').trim() || null,
+      sectionType: String(row?.status || '').trim() || null,
+      invoiceId: String(row?.invoiceId || row?.invoiceNumber || '').trim() || null,
+      invoiceDate: String(row?.invoiceDate || row?.dueDate || '').trim() || null,
+      coverageStartDate: String(row?.periodStart || '').trim() || null,
+      coverageEndDate: String(row?.periodEnd || '').trim() || null,
+      sourceType: 'sendgrid_invoice'
+    });
+  }
+
+  return details;
+}
+
+function extractGrafanaCloudResourceDetailRows(snapshot) {
+  const lineItems = Array.isArray(snapshot?.raw?.lineItems) ? snapshot.raw.lineItems : [];
+  if (!lineItems.length) {
+    return [];
+  }
+
+  const details = [];
+  for (const row of lineItems) {
+    const amount = Number(row?.amount || 0);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+    const resourceType = normalizeBillingResourceType(
+      row?.resourceType || row?.dimensionName || 'Usage'
+    );
+    const accountId = String(row?.accountId || snapshot?.raw?.accountId || '').trim() || null;
+    const detailName = String(row?.detailName || row?.stackName || resourceType)
+      .replace(/\s+/g, ' ')
+      .trim();
+    const fallbackOrgSlug = String(snapshot?.raw?.orgSlug || accountId || 'grafana-cloud').trim() || 'grafana-cloud';
+    const resourceRef = buildGrafanaCloudLineResourceRef(row, fallbackOrgSlug);
+    details.push({
+      provider: 'grafana-cloud',
+      resourceType,
+      detailName: detailName || resourceType,
+      resourceRef,
+      currency: normalizeCurrencyCode(row?.currency || snapshot?.currency || 'USD'),
+      amount,
+      vendorId: snapshot.vendorId || null,
+      accountId,
+      itemType: String(row?.dimensionKey || '').trim() || 'USAGE',
+      lineItemId: String(row?.id || '').trim() || null,
+      sectionType: String(row?.usageMonth || '').trim() || null,
+      invoiceId: null,
+      invoiceDate: null,
+      coverageStartDate: String(row?.periodStart || snapshot?.periodStart || '').trim() || null,
+      coverageEndDate: String(row?.periodEnd || snapshot?.periodEnd || '').trim() || null,
+      sourceType: String(row?.sourceType || '').trim() || 'grafana_cloud_billed_usage'
+    });
+  }
+  return details;
+}
+
 function extractGenericResourceDetailRows(snapshot) {
   const rows = Array.isArray(snapshot?.raw?.resourceBreakdown) ? snapshot.raw.resourceBreakdown : [];
   return rows
@@ -2843,30 +3951,42 @@ function extractGenericResourceDetailRows(snapshot) {
 function extractSnapshotResourceDetails(snapshot) {
   const provider = normalizeProvider(snapshot?.provider);
   if (provider === 'azure') {
-    const rows = extractAzureResourceDetailRows(snapshot);
+    const rows = ensureBillingDetailResourceRefs(extractAzureResourceDetailRows(snapshot));
     if (rows.length) {
       return rows;
     }
   }
   if (provider === 'aws') {
-    const rows = extractAwsResourceDetailRows(snapshot);
+    const rows = ensureBillingDetailResourceRefs(extractAwsResourceDetailRows(snapshot));
     if (rows.length) {
       return rows;
     }
   }
   if (provider === 'wasabi' || provider === 'wasabi-main') {
-    const rows = extractWasabiResourceDetailRows(snapshot);
+    const rows = ensureBillingDetailResourceRefs(extractWasabiResourceDetailRows(snapshot));
+    if (rows.length) {
+      return rows;
+    }
+  }
+  if (provider === 'sendgrid') {
+    const rows = ensureBillingDetailResourceRefs(extractSendgridResourceDetailRows(snapshot));
+    if (rows.length) {
+      return rows;
+    }
+  }
+  if (provider === 'grafana-cloud') {
+    const rows = ensureBillingDetailResourceRefs(extractGrafanaCloudResourceDetailRows(snapshot));
     if (rows.length) {
       return rows;
     }
   }
   if (provider === 'rackspace') {
-    const rows = extractRackspaceResourceDetailRows(snapshot);
+    const rows = ensureBillingDetailResourceRefs(extractRackspaceResourceDetailRows(snapshot));
     if (rows.length) {
       return rows;
     }
   }
-  return extractGenericResourceDetailRows(snapshot);
+  return ensureBillingDetailResourceRefs(extractGenericResourceDetailRows(snapshot));
 }
 
 function summarizeBillingResourceDetails(snapshots = []) {
@@ -3000,9 +4120,10 @@ function listBillingAccountTotals(filters = {}, context = {}) {
     )
     .all(...args);
 
-  const vendors = listVendors()
-    .filter((vendor) => isBillingProvider(vendor.provider))
-    .filter((vendor) => (providerFilter ? vendor.provider === providerFilter : true));
+  const vendors = listConfiguredBillingVendors({
+    provider: providerFilter || null,
+    includeHidden: Boolean(filters.includeHidden)
+  });
   const vendorsById = new Map(vendors.map((vendor) => [vendor.id, vendor]));
 
   const totalsByVendor = new Map();
@@ -3133,9 +4254,10 @@ function buildBillingAccountContext(provider = null) {
   const normalizedProvider = provider ? normalizeProvider(provider) : null;
   const awsAccountLabels = readAwsAccountLabelMap();
   const rackspaceAccountLabels = readRackspaceAccountLabelMap();
-  const contextVendors = listVendors()
-    .filter((vendor) => isBillingProvider(vendor.provider))
-    .filter((vendor) => (normalizedProvider ? vendor.provider === normalizedProvider : true));
+  const contextVendors = listConfiguredBillingVendors({
+    provider: normalizedProvider || null,
+    includeHidden: false
+  });
   return {
     contextVendors,
     context: {
@@ -3343,7 +4465,7 @@ function buildBillingBudgetAccountRowsForYear(yearValue, provider = null) {
 }
 
 app.get('/api/health', (_req, res) => {
-  const vendorCount = listVendors().filter((vendor) => isBillingProvider(vendor.provider)).length;
+  const vendorCount = listConfiguredBillingVendors({ includeHidden: false }).length;
   res.json({
     ok: true,
     vendors: vendorCount
@@ -3400,20 +4522,49 @@ app.get('/api/billing', (req, res) => {
   const periodStart = req.query.periodStart ? String(req.query.periodStart).trim() : null;
   const periodEnd = req.query.periodEnd ? String(req.query.periodEnd).trim() : null;
 
-  const snapshots = listBillingSnapshots({ provider, vendorId, limit, periodStart, periodEnd });
-  const breakdownRows = listBillingSnapshots({
+  const visibleVendorIds = buildVisibleBillingVendorIdSet(provider || null);
+  const snapshotsRaw = listBillingSnapshots({ provider, vendorId, limit, periodStart, periodEnd });
+  const snapshots = snapshotsRaw.filter((row) => {
+    const currentVendorId = String(row?.vendorId || '').trim();
+    return !currentVendorId || visibleVendorIds.has(currentVendorId);
+  });
+  const breakdownRowsRaw = listBillingSnapshots({
     provider,
     vendorId,
     limit: 5000,
     periodStart,
     periodEnd
   });
+  const breakdownRows = breakdownRowsRaw.filter((row) => {
+    const currentVendorId = String(row?.vendorId || '').trim();
+    return !currentVendorId || visibleVendorIds.has(currentVendorId);
+  });
   const resourceDetails = summarizeBillingResourceDetails(breakdownRows);
 
-  const summaryRows = summarizeBillingByProvider({ periodStart, periodEnd }).map((row) => ({
-    ...row,
-    providerLabel: getBillingProviderLabel(row?.provider)
-  }));
+  const summaryMap = new Map();
+  for (const row of breakdownRows) {
+    const summaryKey = `${normalizeProvider(row?.provider)}::${normalizeCurrencyCode(row?.currency || 'USD')}`;
+    const current = summaryMap.get(summaryKey) || {
+      provider: normalizeProvider(row?.provider),
+      currency: normalizeCurrencyCode(row?.currency || 'USD'),
+      totalAmount: 0,
+      snapshotCount: 0
+    };
+    current.totalAmount += Number(row?.amount || 0);
+    current.snapshotCount += 1;
+    summaryMap.set(summaryKey, current);
+  }
+  const summaryRows = Array.from(summaryMap.values())
+    .map((row) => ({
+      ...row,
+      providerLabel: getBillingProviderLabel(row?.provider)
+    }))
+    .sort((left, right) => {
+      if (left.provider !== right.provider) {
+        return left.provider.localeCompare(right.provider);
+      }
+      return String(left.currency || '').localeCompare(String(right.currency || ''));
+    });
 
   res.json({
     snapshots,
@@ -3959,6 +5110,34 @@ app.post('/api/billing/backfill', async (req, res) => {
     status: getBackfillStatusPayload()
   });
 });
+
+try {
+  const inheritedSummary = backfillPreviousPeriodTagInheritanceFromSnapshots();
+  if (Number(inheritedSummary?.updated || 0) > 0) {
+    console.info(
+      `[billing] Applied previous-period tag inheritance to ${inheritedSummary.updated}/${inheritedSummary.candidates} candidate resource(s) across ${inheritedSummary.snapshots} snapshot(s).`
+    );
+  }
+} catch (error) {
+  console.error('[billing] Previous-period tag inheritance bootstrap failed', {
+    message: error?.message || String(error),
+    stack: error?.stack || null
+  });
+}
+
+try {
+  const summary = backfillGrafanaCloudAutoTagsFromSnapshots();
+  if (Number(summary?.updated || 0) > 0) {
+    console.info(
+      `[billing] Applied Grafana auto-tags to ${summary.updated}/${summary.uniqueResources} resource(s) from ${summary.snapshots} snapshot(s).`
+    );
+  }
+} catch (error) {
+  console.error('[billing] Grafana auto-tag bootstrap failed', {
+    message: error?.message || String(error),
+    stack: error?.stack || null
+  });
+}
 
 app.use((error, _req, res, _next) => {
   const statusCode = Number(error?.statusCode) || 500;

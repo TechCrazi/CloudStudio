@@ -1221,6 +1221,14 @@
                   </label>
                   <div class="private-import-tools">
                     <label>
+                      VSAx group search
+                      <input
+                        type="search"
+                        data-private-field="vsaxGroupSearch"
+                        placeholder="Filter groups"
+                      />
+                    </label>
+                    <label>
                       VSAx group (capacity source)
                       <select data-private-field="vsaxGroupName"></select>
                     </label>
@@ -1501,6 +1509,10 @@
           <div class="results-panel is-hidden" id="vsax-compare-panel">
             <div class="vsax-compare-sticky">
               <div class="panel-actions vsax-compare-actions">
+                <label>
+                  VSAx group search
+                  <input id="vsax-compare-group-search" type="search" placeholder="Filter groups" />
+                </label>
                 <label>
                   VSAx group
                   <select id="vsax-compare-group">

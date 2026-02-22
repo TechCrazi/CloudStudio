@@ -217,6 +217,9 @@ const pricingPanel = document.getElementById("pricing-panel");
 const savedComparePanel = document.getElementById("saved-compare-panel");
 const vsaxComparePanel = document.getElementById("vsax-compare-panel");
 const vsaxCompareGroupSelect = document.getElementById("vsax-compare-group");
+const vsaxCompareGroupSearchInput = document.getElementById(
+  "vsax-compare-group-search"
+);
 const vsaxCompareRegionSelect = document.getElementById("vsax-compare-region");
 const vsaxComparePricingProviderSelect = document.getElementById(
   "vsax-compare-pricing-provider"
@@ -558,6 +561,7 @@ let vsaxCapacityCatalog = { loadedAt: null, groups: [] };
 let vsaxCompareState = {
   loading: false,
   selectedGroupName: "",
+  groupSearchText: "",
   regionKey: "us-east",
   pricingProvider: "api",
   data: null,
@@ -1370,11 +1374,13 @@ function loadVsaxComparePreferences() {
       return;
     }
     const selectedGroupName = String(parsed.selectedGroupName || "").trim();
+    const groupSearchText = String(parsed.groupSearchText || "").trim();
     const regionKey = String(parsed.regionKey || "").trim();
     const pricingProvider = String(parsed.pricingProvider || "").trim();
     if (selectedGroupName) {
       vsaxCompareState.selectedGroupName = selectedGroupName;
     }
+    vsaxCompareState.groupSearchText = groupSearchText;
     if (regionKey) {
       vsaxCompareState.regionKey = regionKey;
     }
@@ -1391,6 +1397,7 @@ function persistVsaxComparePreferences() {
     VSAX_COMPARE_PREFS_KEY,
     JSON.stringify({
       selectedGroupName: vsaxCompareState.selectedGroupName || "",
+      groupSearchText: vsaxCompareState.groupSearchText || "",
       regionKey: vsaxCompareState.regionKey || "us-east",
       pricingProvider: vsaxCompareState.pricingProvider || "api",
     })
@@ -1944,9 +1951,39 @@ function handleVsaxCompareExportPdf() {
 
 function renderVsaxComparePanel(data = null) {
   const payload = data || vsaxCompareState.data;
-  const availableGroups = Array.isArray(payload?.availableGroups)
+  const allAvailableGroups = Array.isArray(payload?.availableGroups)
     ? payload.availableGroups
     : [];
+  const groupSearchText = String(vsaxCompareState.groupSearchText || "")
+    .trim()
+    .toLowerCase();
+  let availableGroups = allAvailableGroups.filter((groupName) => {
+    if (!groupSearchText) {
+      return true;
+    }
+    return String(groupName || "").toLowerCase().includes(groupSearchText);
+  });
+
+  if (
+    !availableGroups.length &&
+    vsaxCompareState.selectedGroupName &&
+    allAvailableGroups.includes(vsaxCompareState.selectedGroupName)
+  ) {
+    availableGroups = [vsaxCompareState.selectedGroupName];
+  }
+
+  if (!availableGroups.length) {
+    availableGroups = allAvailableGroups;
+  }
+
+  if (vsaxCompareGroupSearchInput instanceof HTMLInputElement) {
+    const currentSearch = String(vsaxCompareGroupSearchInput.value || "").trim();
+    if (currentSearch !== String(vsaxCompareState.groupSearchText || "")) {
+      vsaxCompareGroupSearchInput.value = String(vsaxCompareState.groupSearchText || "");
+    }
+    vsaxCompareGroupSearchInput.disabled =
+      vsaxCompareState.loading || !allAvailableGroups.length;
+  }
 
   if (vsaxCompareGroupSelect instanceof HTMLSelectElement) {
     const previous =
@@ -7382,10 +7419,30 @@ function updatePrivateCardVsaxGroupOptions(cardState, preferredGroupName = "") {
   if (!(select instanceof HTMLSelectElement)) {
     return;
   }
-  const options = buildVsaxGroupOptions();
+  const allOptions = buildVsaxGroupOptions();
+  const searchText = String(cardState?.fields?.vsaxGroupSearch?.value || "")
+    .trim()
+    .toLowerCase();
+  let options = allOptions.filter((entry) => {
+    if (!searchText) {
+      return true;
+    }
+    return String(entry?.groupName || "")
+      .toLowerCase()
+      .includes(searchText);
+  });
   const currentValue = String(
     preferredGroupName || select.value || DEFAULT_VSAX_GROUP_NAME
   ).trim();
+  if (
+    currentValue &&
+    !options.some((entry) => entry.groupName === currentValue)
+  ) {
+    const match = allOptions.find((entry) => entry.groupName === currentValue);
+    if (match) {
+      options = [match, ...options];
+    }
+  }
   select.innerHTML = "";
 
   if (!options.length) {
@@ -7803,6 +7860,14 @@ function createPrivateProviderCard(provider) {
   if (cardState.fields.vsaxGroupName) {
     cardState.fields.vsaxGroupName.addEventListener("change", () => {
       setPrivateVsaxImportNote(cardState, "");
+    });
+  }
+  if (cardState.fields.vsaxGroupSearch) {
+    cardState.fields.vsaxGroupSearch.addEventListener("input", () => {
+      updatePrivateCardVsaxGroupOptions(
+        cardState,
+        String(cardState.fields.vsaxGroupName?.value || "").trim()
+      );
     });
   }
   const capacityInputs = [
@@ -13616,6 +13681,15 @@ if (vsaxCompareGroupSelect) {
     ).trim();
     persistVsaxComparePreferences();
     refreshVsaxCompareData({ force: true });
+  });
+}
+if (vsaxCompareGroupSearchInput) {
+  vsaxCompareGroupSearchInput.addEventListener("input", () => {
+    vsaxCompareState.groupSearchText = String(
+      vsaxCompareGroupSearchInput.value || ""
+    ).trim();
+    persistVsaxComparePreferences();
+    renderVsaxComparePanel();
   });
 }
 if (vsaxCompareRegionSelect) {

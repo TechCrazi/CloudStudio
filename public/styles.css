@@ -240,8 +240,20 @@ pre {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
   line-height: 1;
+  color: currentColor;
+}
+
+.nav-icon-svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.85;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+  transition: opacity 0.18s ease;
 }
 
 .nav-label {
@@ -466,8 +478,12 @@ pre {
 }
 
 .drawer:not(.drawer-open) .nav-icon {
-  font-size: 16px;
   opacity: 0.9;
+}
+
+.drawer:not(.drawer-open) .nav-icon-svg {
+  width: 17px;
+  height: 17px;
 }
 
 .drawer:not(.drawer-open) .nav-item.active .nav-icon {
@@ -555,6 +571,15 @@ pre {
 .billing-type-controls .billing-search-inline {
   min-width: 280px;
   flex: 1 1 280px;
+}
+
+.billing-account-sort-controls {
+  justify-content: flex-end;
+  margin: 4px 0 10px;
+}
+
+.billing-account-sort-controls .range-inline {
+  min-width: 220px;
 }
 
 .inline-status {
@@ -669,6 +694,11 @@ pre {
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.grafana-cloud-range-toolbar {
+  justify-content: flex-start;
+  margin-bottom: 4px;
 }
 
 .billing-range-presets {
@@ -958,6 +988,14 @@ textarea:focus {
   font-size: 15px;
 }
 
+.overview-billing-head {
+  align-items: center;
+}
+
+.overview-billing-head h3 {
+  margin: 0;
+}
+
 .billing-org-cards {
   margin-top: 8px;
 }
@@ -969,6 +1007,35 @@ textarea:focus {
 .billing-org-card .muted {
   margin-top: 4px;
   font-size: 12px;
+}
+
+.grafana-product-cards .card {
+  gap: 4px;
+}
+
+.grafana-product-card .value {
+  font-size: 28px;
+}
+
+.grafana-product-secondary {
+  font-size: 12px;
+}
+
+.grafana-delta {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.grafana-delta.up {
+  color: #7fe2c2;
+}
+
+.grafana-delta.down {
+  color: #ff9a9a;
+}
+
+.grafana-delta.flat {
+  color: var(--muted);
 }
 
 .billing-tag-filter-card {
@@ -1015,6 +1082,33 @@ textarea:focus {
 
 .billing-budget-delta.on-target {
   color: #bcd7ef;
+}
+
+.billing-budget-delta.unset {
+  color: var(--muted);
+}
+
+.billing-budget-delta-table {
+  font-size: 13px;
+}
+
+.billing-budget-table-detail {
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.vendor-hidden-row {
+  opacity: 0.68;
+}
+
+.vendor-visibility-hidden {
+  color: #ffb0b0;
+  font-weight: 700;
+}
+
+.vendor-visibility-visible {
+  color: #8ddfbe;
+  font-weight: 700;
 }
 
 .billing-budget-detail {
@@ -1234,6 +1328,39 @@ tbody tr.active-row {
 .tag-edit-btn {
   padding: 5px 9px;
   font-size: 11px;
+}
+
+.vpn-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.vpn-status-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  display: inline-block;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.07);
+}
+
+.vpn-status-dot.online {
+  background: #30d18f;
+}
+
+.vpn-status-dot.issue {
+  background: #f36f6f;
+}
+
+.vpn-meta-input {
+  min-width: 130px;
+  width: 100%;
+}
+
+.vpn-meta-input.tags {
+  min-width: 220px;
 }
 
 .muted {

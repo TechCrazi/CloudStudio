@@ -243,6 +243,15 @@ CREATE TABLE IF NOT EXISTS vsax_disks (
   FOREIGN KEY(group_name) REFERENCES vsax_groups(group_name)
 );
 
+CREATE TABLE IF NOT EXISTS storage_user_state (
+  user_key TEXT PRIMARY KEY,
+  selected_subscription_ids_json TEXT NOT NULL DEFAULT '[]',
+  selected_vsax_group_names_json TEXT NOT NULL DEFAULT '[]',
+  selected_aws_account_ids_json TEXT NOT NULL DEFAULT '[]',
+  selected_wasabi_account_ids_json TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_accounts_sub ON storage_accounts(subscription_id);
 CREATE INDEX IF NOT EXISTS idx_containers_acc ON containers(account_id);
 CREATE INDEX IF NOT EXISTS idx_pricing_cache_synced ON pricing_cache(synced_at);
@@ -323,6 +332,8 @@ ensureColumn('aws_efs_file_systems', 'size_bytes', 'INTEGER');
 ensureColumn('aws_efs_file_systems', 'creation_time', 'TEXT');
 ensureColumn('aws_efs_file_systems', 'last_sync_at', 'TEXT');
 ensureColumn('aws_efs_file_systems', 'last_error', 'TEXT');
+ensureColumn('storage_user_state', 'selected_aws_account_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+ensureColumn('storage_user_state', 'selected_wasabi_account_ids_json', "TEXT NOT NULL DEFAULT '[]'");
 ensureColumn('vsax_groups', 'is_selected', 'INTEGER NOT NULL DEFAULT 1');
 ensureColumn('vsax_devices', 'internal_ip', 'TEXT');
 ensureColumn('vsax_devices', 'public_ip', 'TEXT');
@@ -746,6 +757,43 @@ const setVsaxGroupSelectedStmt = db.prepare(`
 UPDATE vsax_groups SET is_selected=1 WHERE group_name=?
 `);
 
+const upsertStorageUserStateStmt = db.prepare(`
+INSERT INTO storage_user_state (
+  user_key,
+  selected_subscription_ids_json,
+  selected_vsax_group_names_json,
+  selected_aws_account_ids_json,
+  selected_wasabi_account_ids_json,
+  updated_at
+)
+VALUES (
+  @user_key,
+  @selected_subscription_ids_json,
+  @selected_vsax_group_names_json,
+  @selected_aws_account_ids_json,
+  @selected_wasabi_account_ids_json,
+  @updated_at
+)
+ON CONFLICT(user_key) DO UPDATE SET
+  selected_subscription_ids_json=excluded.selected_subscription_ids_json,
+  selected_vsax_group_names_json=excluded.selected_vsax_group_names_json,
+  selected_aws_account_ids_json=excluded.selected_aws_account_ids_json,
+  selected_wasabi_account_ids_json=excluded.selected_wasabi_account_ids_json,
+  updated_at=excluded.updated_at
+`);
+
+const getStorageUserStateStmt = db.prepare(`
+SELECT
+  user_key,
+  selected_subscription_ids_json,
+  selected_vsax_group_names_json,
+  selected_aws_account_ids_json,
+  selected_wasabi_account_ids_json
+FROM storage_user_state
+WHERE user_key=?
+LIMIT 1
+`);
+
 const upsertVsaxGroupStmt = db.prepare(`
 INSERT INTO vsax_groups (
   group_name,
@@ -902,6 +950,56 @@ function normalizeTagsJson(tags) {
   return JSON.stringify(tags);
 }
 
+function normalizeUserKey(userKey) {
+  const normalized = String(userKey || '').trim().toLowerCase();
+  return normalized || '';
+}
+
+function parseJsonArray(raw) {
+  const parsed = parseJsonObject(raw);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
+function getStorageUserState(userKey) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return null;
+  }
+  return getStorageUserStateStmt.get(normalizedUserKey) || null;
+}
+
+function upsertStorageUserState(userKey, updates = {}) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return false;
+  }
+
+  const existing = getStorageUserState(normalizedUserKey);
+  const nextSelectedSubscriptionIdsJson = Object.prototype.hasOwnProperty.call(updates, 'selectedSubscriptionIdsJson')
+    ? updates.selectedSubscriptionIdsJson
+    : existing?.selected_subscription_ids_json || '[]';
+  const nextSelectedVsaxGroupNamesJson = Object.prototype.hasOwnProperty.call(updates, 'selectedVsaxGroupNamesJson')
+    ? updates.selectedVsaxGroupNamesJson
+    : existing?.selected_vsax_group_names_json || '[]';
+  const nextSelectedAwsAccountIdsJson = Object.prototype.hasOwnProperty.call(updates, 'selectedAwsAccountIdsJson')
+    ? updates.selectedAwsAccountIdsJson
+    : existing?.selected_aws_account_ids_json || '[]';
+  const nextSelectedWasabiAccountIdsJson = Object.prototype.hasOwnProperty.call(updates, 'selectedWasabiAccountIdsJson')
+    ? updates.selectedWasabiAccountIdsJson
+    : existing?.selected_wasabi_account_ids_json || '[]';
+
+  upsertStorageUserStateStmt.run({
+    user_key: normalizedUserKey,
+    selected_subscription_ids_json: nextSelectedSubscriptionIdsJson || '[]',
+    selected_vsax_group_names_json: nextSelectedVsaxGroupNamesJson || '[]',
+    selected_aws_account_ids_json: nextSelectedAwsAccountIdsJson || '[]',
+    selected_wasabi_account_ids_json: nextSelectedWasabiAccountIdsJson || '[]',
+    updated_at: nowIso()
+  });
+
+  return true;
+}
+
 function upsertSubscriptions(subscriptions) {
   const seenAt = nowIso();
   const tx = db.transaction((items) => {
@@ -929,7 +1027,19 @@ function getSubscriptions() {
   `).all();
 }
 
-function setSelectedSubscriptions(subscriptionIds) {
+function setSelectedSubscriptions(subscriptionIds, userKey = null) {
+  const normalizedIds = Array.isArray(subscriptionIds)
+    ? subscriptionIds.map((id) => String(id || '').trim()).filter(Boolean)
+    : [];
+
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (normalizedUserKey) {
+    upsertStorageUserState(normalizedUserKey, {
+      selectedSubscriptionIdsJson: JSON.stringify(Array.from(new Set(normalizedIds)))
+    });
+    return;
+  }
+
   const tx = db.transaction((ids) => {
     db.prepare('UPDATE subscriptions SET is_selected=0').run();
     const stmt = db.prepare('UPDATE subscriptions SET is_selected=1 WHERE subscription_id=?');
@@ -937,10 +1047,45 @@ function setSelectedSubscriptions(subscriptionIds) {
       stmt.run(id);
     }
   });
-  tx(subscriptionIds);
+  tx(normalizedIds);
 }
 
-function getSelectedSubscriptionIds() {
+function getSelectedSubscriptionIds(userKey = null) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (normalizedUserKey) {
+    const state = getStorageUserState(normalizedUserKey);
+    const requestedIds = parseJsonArray(state?.selected_subscription_ids_json)
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+
+    if (requestedIds.length) {
+      const placeholders = requestedIds.map(() => '?').join(',');
+      return db
+        .prepare(
+          `
+          SELECT subscription_id
+          FROM subscriptions
+          WHERE is_active=1 AND subscription_id IN (${placeholders})
+          ORDER BY display_name COLLATE NOCASE
+        `
+        )
+        .all(...requestedIds)
+        .map((row) => row.subscription_id);
+    }
+
+    return db
+      .prepare(
+        `
+        SELECT subscription_id
+        FROM subscriptions
+        WHERE is_active=1
+        ORDER BY display_name COLLATE NOCASE
+      `
+      )
+      .all()
+      .map((row) => row.subscription_id);
+  }
+
   return db.prepare('SELECT subscription_id FROM subscriptions WHERE is_active=1 AND is_selected=1').all().map((r) => r.subscription_id);
 }
 
@@ -1744,12 +1889,20 @@ function upsertVsaxGroups(groupNames = []) {
   tx(Array.from(new Set(names)), seenAt);
 }
 
-function setSelectedVsaxGroups(groupNames = []) {
+function setSelectedVsaxGroups(groupNames = [], userKey = null) {
   const names = Array.isArray(groupNames)
     ? groupNames
         .map((name) => String(name || '').trim())
-        .filter(Boolean)
+    .filter(Boolean)
     : [];
+
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (normalizedUserKey) {
+    upsertStorageUserState(normalizedUserKey, {
+      selectedVsaxGroupNamesJson: JSON.stringify(Array.from(new Set(names)))
+    });
+    return;
+  }
 
   const tx = db.transaction((rows) => {
     clearVsaxGroupSelectionStmt.run();
@@ -1761,7 +1914,44 @@ function setSelectedVsaxGroups(groupNames = []) {
   tx(Array.from(new Set(names)));
 }
 
-function getSelectedVsaxGroupNames() {
+function getSelectedVsaxGroupNames(userKey = null) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (normalizedUserKey) {
+    const state = getStorageUserState(normalizedUserKey);
+    const requestedNames = parseJsonArray(state?.selected_vsax_group_names_json)
+      .map((name) => String(name || '').trim())
+      .filter(Boolean);
+
+    if (requestedNames.length) {
+      const placeholders = requestedNames.map(() => '?').join(',');
+      return db
+        .prepare(
+          `
+          SELECT group_name
+          FROM vsax_groups
+          WHERE is_active=1 AND group_name IN (${placeholders})
+          ORDER BY group_name COLLATE NOCASE
+        `
+        )
+        .all(...requestedNames)
+        .map((row) => String(row.group_name || '').trim())
+        .filter(Boolean);
+    }
+
+    return db
+      .prepare(
+        `
+        SELECT group_name
+        FROM vsax_groups
+        WHERE is_active=1
+        ORDER BY group_name COLLATE NOCASE
+      `
+      )
+      .all()
+      .map((row) => String(row.group_name || '').trim())
+      .filter(Boolean);
+  }
+
   return db
     .prepare(
       `
@@ -1774,6 +1964,102 @@ function getSelectedVsaxGroupNames() {
     .all()
     .map((row) => String(row.group_name || '').trim())
     .filter(Boolean);
+}
+
+function setSelectedAwsAccountIds(accountIds = [], userKey = null) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return;
+  }
+
+  const normalizedIds = Array.isArray(accountIds)
+    ? accountIds
+        .map((id) => String(id || '').trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  upsertStorageUserState(normalizedUserKey, {
+    selectedAwsAccountIdsJson: JSON.stringify(Array.from(new Set(normalizedIds)))
+  });
+}
+
+function getSelectedAwsAccountIds(userKey = null) {
+  const activeAccountIds = db
+    .prepare(
+      `
+      SELECT account_id
+      FROM aws_accounts
+      WHERE is_active=1
+      ORDER BY display_name COLLATE NOCASE, account_id COLLATE NOCASE
+    `
+    )
+    .all()
+    .map((row) => String(row.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return activeAccountIds;
+  }
+
+  const state = getStorageUserState(normalizedUserKey);
+  const requestedIds = parseJsonArray(state?.selected_aws_account_ids_json)
+    .map((id) => String(id || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!requestedIds.length) {
+    return activeAccountIds;
+  }
+
+  const activeSet = new Set(activeAccountIds);
+  return requestedIds.filter((id, index) => requestedIds.indexOf(id) === index && activeSet.has(id));
+}
+
+function setSelectedWasabiAccountIds(accountIds = [], userKey = null) {
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return;
+  }
+
+  const normalizedIds = Array.isArray(accountIds)
+    ? accountIds
+        .map((id) => String(id || '').trim().toLowerCase())
+        .filter(Boolean)
+    : [];
+
+  upsertStorageUserState(normalizedUserKey, {
+    selectedWasabiAccountIdsJson: JSON.stringify(Array.from(new Set(normalizedIds)))
+  });
+}
+
+function getSelectedWasabiAccountIds(userKey = null) {
+  const activeAccountIds = db
+    .prepare(
+      `
+      SELECT account_id
+      FROM wasabi_accounts
+      WHERE is_active=1
+      ORDER BY display_name COLLATE NOCASE, account_id COLLATE NOCASE
+    `
+    )
+    .all()
+    .map((row) => String(row.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+
+  const normalizedUserKey = normalizeUserKey(userKey);
+  if (!normalizedUserKey) {
+    return activeAccountIds;
+  }
+
+  const state = getStorageUserState(normalizedUserKey);
+  const requestedIds = parseJsonArray(state?.selected_wasabi_account_ids_json)
+    .map((id) => String(id || '').trim().toLowerCase())
+    .filter(Boolean);
+  if (!requestedIds.length) {
+    return activeAccountIds;
+  }
+
+  const activeSet = new Set(activeAccountIds);
+  return requestedIds.filter((id, index) => requestedIds.indexOf(id) === index && activeSet.has(id));
 }
 
 function updateVsaxGroupSync({ groupName, error }) {
@@ -2062,9 +2348,13 @@ module.exports = {
   getAwsBuckets,
   replaceAwsEfsForAccount,
   getAwsEfs,
+  setSelectedAwsAccountIds,
+  getSelectedAwsAccountIds,
   upsertVsaxGroups,
   setSelectedVsaxGroups,
   getSelectedVsaxGroupNames,
+  setSelectedWasabiAccountIds,
+  getSelectedWasabiAccountIds,
   updateVsaxGroupSync,
   replaceVsaxInventoryForGroup,
   getVsaxGroups,

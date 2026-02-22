@@ -1002,6 +1002,868 @@ function normalizeWasabiWacmControlUsageEndpoint(value) {
   }
 }
 
+function normalizeSendgridBillingEndpoint(value) {
+  const fallback = 'https://api.sendgrid.com/v3/billing/invoices';
+  const normalized = normalizeBaseUrl(value, fallback);
+  try {
+    const url = new URL(normalized);
+    let pathname = String(url.pathname || '').trim().replace(/\/+$/g, '');
+    if (!pathname || pathname === '/') {
+      pathname = '/v3/billing/invoices';
+    } else if (/\/v3$/i.test(pathname)) {
+      pathname = `${pathname}/billing/invoices`;
+    } else if (/\/v3\/billing$/i.test(pathname)) {
+      pathname = `${pathname}/invoices`;
+    } else if (!/\/v3\/billing\/invoices$/i.test(pathname)) {
+      pathname = '/v3/billing/invoices';
+    }
+    url.pathname = pathname;
+    return url.toString();
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function normalizeGrafanaCloudApiBaseUrl(value) {
+  const fallback = 'https://grafana.com';
+  const normalized = normalizeBaseUrl(value, fallback);
+  try {
+    const url = new URL(normalized);
+    url.pathname = String(url.pathname || '').trim().replace(/\/+$/g, '') || '';
+    return url.toString().replace(/\/+$/g, '');
+  } catch (_error) {
+    return fallback;
+  }
+}
+
+function normalizeGrafanaCloudStackBaseUrl(value, orgSlug) {
+  const fallbackHost = String(orgSlug || '').trim() ? `https://${String(orgSlug).trim()}.grafana.net` : 'https://grafana.net';
+  const normalized = normalizeBaseUrl(value, fallbackHost);
+  try {
+    const url = new URL(normalized);
+    url.pathname = '';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/g, '');
+  } catch (_error) {
+    return fallbackHost;
+  }
+}
+
+function normalizeGrafanaCloudDimensionKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+function normalizeGrafanaCloudStackSlug(value) {
+  const slug = String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug || 'org';
+}
+
+const GRAFANA_CLOUD_USAGE_DETAIL_METRICS = [
+  {
+    key: 'traces_usage_cost',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_traces_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'traces',
+    lineItemLabel: 'Traces'
+  },
+  {
+    key: 'traces_process_usage_cost',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Process Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_traces_process_overage)'
+  },
+  {
+    key: 'traces_write_usage_cost',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Write Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_traces_overage)'
+  },
+  {
+    key: 'traces_retention_usage_cost',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Retention Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_traces_retention_overage)'
+  },
+  {
+    key: 'traces_process_usage',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Process Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_traces_process_usage)'
+  },
+  {
+    key: 'traces_write_usage',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Write Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_traces_usage)'
+  },
+  {
+    key: 'traces_retention_usage',
+    productKey: 'traces',
+    productLabel: 'Traces',
+    label: 'Traces Retention Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_traces_retention_usage)'
+  },
+  {
+    key: 'logs_usage_cost',
+    productKey: 'logs',
+    productLabel: 'Logs',
+    label: 'Logs Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_logs_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'logs',
+    lineItemLabel: 'Logs'
+  },
+  {
+    key: 'logs_process_usage_cost',
+    productKey: 'logs',
+    productLabel: 'Logs',
+    label: 'Logs Process Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_logs_process_overage)'
+  },
+  {
+    key: 'logs_write_usage_cost',
+    productKey: 'logs',
+    productLabel: 'Logs',
+    label: 'Logs Write Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_logs_overage)'
+  },
+  {
+    key: 'logs_process_usage',
+    productKey: 'logs',
+    productLabel: 'Logs',
+    label: 'Logs Process Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_logs_process_usage)'
+  },
+  {
+    key: 'logs_write_usage',
+    productKey: 'logs',
+    productLabel: 'Logs',
+    label: 'Logs Write Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_logs_usage)'
+  },
+  {
+    key: 'logs_retention_usage_cost',
+    productKey: 'logs_retention',
+    productLabel: 'Logs Retention',
+    label: 'Log Retention Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_logs_retention_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'logs_retention',
+    lineItemLabel: 'Logs Retention'
+  },
+  {
+    key: 'logs_retention_usage',
+    productKey: 'logs_retention',
+    productLabel: 'Logs Retention',
+    label: 'Billable Logs Retention Usage',
+    kind: 'usage',
+    unit: 'TiB',
+    query: 'avg(grafanacloud_org_logs_retention_usage)'
+  },
+  {
+    key: 'metrics_usage_cost',
+    productKey: 'metrics',
+    productLabel: 'Metrics',
+    label: 'Metrics Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_metrics_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'metrics',
+    lineItemLabel: 'Metrics'
+  },
+  {
+    key: 'metrics_billable_series',
+    productKey: 'metrics',
+    productLabel: 'Metrics',
+    label: 'Billable Metrics Series',
+    kind: 'usage',
+    unit: 'series',
+    query: 'avg(grafanacloud_org_metrics_billable_series)'
+  },
+  {
+    key: 'app_observability_cost',
+    productKey: 'app_observability',
+    productLabel: 'Application Observability',
+    label: 'Application Observability Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_app_o11y_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'app_observability',
+    lineItemLabel: 'Application Observability'
+  },
+  {
+    key: 'app_observability_host_hours',
+    productKey: 'app_observability',
+    productLabel: 'Application Observability',
+    label: 'Application Observability Host Hours',
+    kind: 'usage',
+    unit: 'host-hours',
+    query: 'avg(grafanacloud_org_app_o11y_billable_host_hours)'
+  },
+  {
+    key: 'billable_users_cost',
+    productKey: 'billable_users',
+    productLabel: 'Billable Users',
+    label: 'Grafana Users Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_grafana_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'billable_users',
+    lineItemLabel: 'Billable Users'
+  },
+  {
+    key: 'billable_users_total',
+    productKey: 'billable_users',
+    productLabel: 'Billable Users',
+    label: 'Total Unique Users',
+    kind: 'usage',
+    unit: 'users',
+    query: 'avg(grafanacloud_org_grafana_billable_users)'
+  },
+  {
+    key: 'k8s_containers_cost',
+    productKey: 'k8s_containers',
+    productLabel: 'Kubernetes Containers',
+    label: 'Kubernetes Monitoring Container Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_infra_o11y_container_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'k8s_containers',
+    lineItemLabel: 'Kubernetes Containers'
+  },
+  {
+    key: 'k8s_containers_hours',
+    productKey: 'k8s_containers',
+    productLabel: 'Kubernetes Containers',
+    label: 'Kubernetes Monitoring Container Hours',
+    kind: 'usage',
+    unit: 'hours',
+    query: 'avg(grafanacloud_org_infra_o11y_billable_container_hours)'
+  },
+  {
+    key: 'k8s_hosts_cost',
+    productKey: 'k8s_hosts',
+    productLabel: 'Kubernetes Hosts',
+    label: 'Kubernetes Monitoring Host Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_infra_o11y_host_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'k8s_hosts',
+    lineItemLabel: 'Kubernetes Hosts'
+  },
+  {
+    key: 'k8s_hosts_hours',
+    productKey: 'k8s_hosts',
+    productLabel: 'Kubernetes Hosts',
+    label: 'Kubernetes Monitoring Host Hours',
+    kind: 'usage',
+    unit: 'hours',
+    query: 'avg(grafanacloud_org_infra_o11y_billable_host_hours)'
+  },
+  {
+    key: 'synthetics_protocol_cost',
+    productKey: 'synthetics',
+    productLabel: 'Synthetic Monitoring',
+    label: 'Current Synthetics Protocol Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_sm_overage)',
+    includeAsLineItem: true,
+    lineItemKey: 'synthetics',
+    lineItemLabel: 'Synthetic Monitoring'
+  },
+  {
+    key: 'synthetics_protocol_executions',
+    productKey: 'synthetics',
+    productLabel: 'Synthetic Monitoring',
+    label: 'Current Synthetics Protocol Test Executions',
+    kind: 'usage',
+    unit: 'executions',
+    query: 'avg(grafanacloud_org_sm_billable_check_executions)'
+  },
+  {
+    key: 'synthetics_browser_cost',
+    productKey: 'synthetics',
+    productLabel: 'Synthetic Monitoring',
+    label: 'Current Synthetics Browser Usage Cost',
+    kind: 'cost',
+    unit: 'USD',
+    query: 'avg(grafanacloud_org_sm_browser_overage)'
+  },
+  {
+    key: 'synthetics_browser_executions',
+    productKey: 'synthetics',
+    productLabel: 'Synthetic Monitoring',
+    label: 'Current Synthetics Browser Test Executions',
+    kind: 'usage',
+    unit: 'executions',
+    query: 'avg(grafanacloud_org_sm_browser_billable_check_executions)'
+  }
+];
+
+function parseGrafanaCloudBilledUsageItems(payload) {
+  if (Array.isArray(payload?.items)) {
+    return payload.items;
+  }
+  if (Array.isArray(payload?.data?.items)) {
+    return payload.data.items;
+  }
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return [];
+}
+
+function parseGrafanaCloudBilledUsageDetails(item = {}) {
+  if (Array.isArray(item?.details)) {
+    return item.details;
+  }
+  if (Array.isArray(item?.usageDetails)) {
+    return item.usageDetails;
+  }
+  if (Array.isArray(item?.instances)) {
+    return item.instances;
+  }
+  return [];
+}
+
+function normalizeGrafanaCsvHeaderKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function resolveGrafanaCsvColumnIndex(header = [], candidates = []) {
+  const normalizedHeader = Array.isArray(header) ? header.map((entry) => normalizeGrafanaCsvHeaderKey(entry)) : [];
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    const normalizedCandidate = normalizeGrafanaCsvHeaderKey(candidate);
+    if (!normalizedCandidate) {
+      continue;
+    }
+    let index = normalizedHeader.findIndex((entry) => entry === normalizedCandidate);
+    if (index >= 0) {
+      return index;
+    }
+    index = normalizedHeader.findIndex(
+      (entry) => entry.includes(normalizedCandidate) || normalizedCandidate.includes(entry)
+    );
+    if (index >= 0) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function parseGrafanaCloudFocusCsv(csvText, options = {}) {
+  const rows = parseCsvRows(csvText);
+  if (!rows.length) {
+    return {
+      rows: [],
+      header: [],
+      matchedColumns: {}
+    };
+  }
+  const header = Array.isArray(rows[0]) ? rows[0].map((entry) => String(entry || '').trim()) : [];
+  const body = rows.slice(1).filter((row) => Array.isArray(row) && row.some((cell) => String(cell || '').trim()));
+  if (!header.length || !body.length) {
+    return {
+      rows: [],
+      header,
+      matchedColumns: {}
+    };
+  }
+
+  const colIndex = {
+    dimensionId: resolveGrafanaCsvColumnIndex(header, ['dimensionId', 'dimension_key', 'dimension']),
+    productName: resolveGrafanaCsvColumnIndex(header, [
+      'product',
+      'productName',
+      'dimensionName',
+      'displayName',
+      'name'
+    ]),
+    overageAmount: resolveGrafanaCsvColumnIndex(header, [
+      'overage',
+      'overages',
+      'overageAmount',
+      'overageCost',
+      'cost',
+      'amount',
+      'charges'
+    ]),
+    totalUsage: resolveGrafanaCsvColumnIndex(header, [
+      'totalUsage',
+      'usage',
+      'usageTotal',
+      'total',
+      'usageAmount'
+    ]),
+    currency: resolveGrafanaCsvColumnIndex(header, ['currency']),
+    changePercent: resolveGrafanaCsvColumnIndex(header, [
+      'change',
+      'changePercent',
+      'overageChangePercent',
+      'percentageChange'
+    ])
+  };
+
+  const parsedRows = [];
+  for (const row of body) {
+    const readCell = (index) => {
+      if (index < 0 || index >= row.length) {
+        return '';
+      }
+      return String(row[index] || '').trim();
+    };
+    const toRecord = {};
+    header.forEach((column, index) => {
+      const key = String(column || '').trim();
+      if (key) {
+        toRecord[key] = readCell(index);
+      }
+    });
+
+    const dimensionIdRaw = readCell(colIndex.dimensionId);
+    const productNameRaw = readCell(colIndex.productName);
+    const dimensionName = normalizeResourceType(productNameRaw || dimensionIdRaw || 'Usage', 'Usage');
+    const dimensionKey = normalizeGrafanaCloudDimensionKey(dimensionIdRaw || dimensionName) || 'usage';
+    const overageAmount = normalizeNumber(readCell(colIndex.overageAmount));
+    const totalUsage = normalizeNumber(readCell(colIndex.totalUsage));
+    const changePercent = normalizeNumber(readCell(colIndex.changePercent));
+    const currency = String(readCell(colIndex.currency) || options.defaultCurrency || 'USD')
+      .trim()
+      .toUpperCase();
+
+    if (!dimensionName && !Number.isFinite(overageAmount) && !Number.isFinite(totalUsage)) {
+      continue;
+    }
+
+    parsedRows.push({
+      dimensionId: dimensionIdRaw || dimensionKey,
+      productName: dimensionName,
+      overageAmount: Number.isFinite(overageAmount) ? overageAmount : 0,
+      totalUsage: Number.isFinite(totalUsage) ? totalUsage : null,
+      changePercent: Number.isFinite(changePercent) ? changePercent : null,
+      currency: currency || 'USD',
+      raw: toRecord
+    });
+  }
+
+  return {
+    rows: parsedRows,
+    header,
+    matchedColumns: colIndex
+  };
+}
+
+function monthRangeFromYearMonthUtc(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!Number.isInteger(y) || !Number.isInteger(m) || m < 1 || m > 12) {
+    return null;
+  }
+  const periodStart = new Date(Date.UTC(y, m - 1, 1));
+  const periodEnd = new Date(Date.UTC(y, m, 0));
+  return {
+    periodStart: periodStart.toISOString().slice(0, 10),
+    periodEnd: periodEnd.toISOString().slice(0, 10),
+    periodEndExclusive: new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 10),
+    year: y,
+    month: m
+  };
+}
+
+function buildMonthsForBillingRange(range = {}) {
+  const start = parseIsoDateOnly(range.periodStart);
+  const end = parseIsoDateOnly(range.periodEnd);
+  if (!start || !end) {
+    return [];
+  }
+  const months = [];
+  const cursor = new Date(Date.UTC(start.date.getUTCFullYear(), start.date.getUTCMonth(), 1));
+  const endMonth = new Date(Date.UTC(end.date.getUTCFullYear(), end.date.getUTCMonth(), 1));
+  while (cursor.getTime() <= endMonth.getTime()) {
+    const year = cursor.getUTCFullYear();
+    const month = cursor.getUTCMonth() + 1;
+    const monthRange = monthRangeFromYearMonthUtc(year, month);
+    if (monthRange) {
+      months.push(monthRange);
+    }
+    cursor.setUTCMonth(cursor.getUTCMonth() + 1, 1);
+  }
+  return months;
+}
+
+function countOverlapDaysInclusive(leftStart, leftEnd, rightStart, rightEnd) {
+  const leftStartParsed = parseIsoDateOnly(leftStart);
+  const leftEndParsed = parseIsoDateOnly(leftEnd);
+  const rightStartParsed = parseIsoDateOnly(rightStart);
+  const rightEndParsed = parseIsoDateOnly(rightEnd);
+  if (!leftStartParsed || !leftEndParsed || !rightStartParsed || !rightEndParsed) {
+    return 0;
+  }
+  const startMs = Math.max(leftStartParsed.date.getTime(), rightStartParsed.date.getTime());
+  const endMs = Math.min(leftEndParsed.date.getTime(), rightEndParsed.date.getTime());
+  if (endMs < startMs) {
+    return 0;
+  }
+  return Math.floor((endMs - startMs) / 86_400_000) + 1;
+}
+
+function listDatesInRange(startDateOnly, endDateOnly) {
+  const start = parseIsoDateOnly(startDateOnly);
+  const end = parseIsoDateOnly(endDateOnly);
+  if (!start || !end || end.date.getTime() < start.date.getTime()) {
+    return [];
+  }
+  const dates = [];
+  const cursor = new Date(start.date.getTime());
+  while (cursor.getTime() <= end.date.getTime()) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+function resolveGrafanaFlexCommitConfig(credentials = {}) {
+  const billingModel = String(
+    credentials?.billingModel || credentials?.contractModel || process.env.GRAFANA_CLOUD_BILLING_MODEL || ''
+  )
+    .trim()
+    .toLowerCase();
+  const enabled =
+    parseBooleanLike(
+      credentials?.flexCommitEnabled !== undefined
+        ? credentials.flexCommitEnabled
+        : process.env.GRAFANA_CLOUD_FLEX_COMMIT_ENABLED,
+      billingModel === 'flex' || billingModel === 'flex_commit' || billingModel === 'commit'
+    ) || false;
+
+  const totalAmount = normalizeNumber(
+    credentials?.flexCommitAmount !== undefined
+      ? credentials.flexCommitAmount
+      : process.env.GRAFANA_CLOUD_FLEX_COMMIT_AMOUNT
+  );
+  const startDateInput = String(
+    credentials?.flexCommitStartDate || process.env.GRAFANA_CLOUD_FLEX_COMMIT_START_DATE || ''
+  ).trim();
+  const parsedStartDate = parseIsoDateOnly(startDateInput);
+  const yearsRaw = Number(
+    credentials?.flexCommitYears !== undefined
+      ? credentials.flexCommitYears
+      : process.env.GRAFANA_CLOUD_FLEX_COMMIT_YEARS || 3
+  );
+  const years = Number.isFinite(yearsRaw) ? Math.max(1, Math.min(10, Math.trunc(yearsRaw))) : 3;
+  const reportingModeRaw = String(
+    credentials?.flexCommitReportingMode || process.env.GRAFANA_CLOUD_FLEX_COMMIT_REPORTING_MODE || ''
+  )
+    .trim()
+    .toLowerCase();
+  const reportingMode = ['usage', 'amortized', 'max'].includes(reportingModeRaw)
+    ? reportingModeRaw
+    : enabled
+    ? 'amortized'
+    : 'usage';
+  const autoRenew = parseBooleanLike(
+    credentials?.flexCommitAutoRenew !== undefined
+      ? credentials.flexCommitAutoRenew
+      : process.env.GRAFANA_CLOUD_FLEX_COMMIT_AUTO_RENEW,
+    true
+  );
+  const currency = String(
+    credentials?.flexCommitCurrency || process.env.GRAFANA_CLOUD_FLEX_COMMIT_CURRENCY || 'USD'
+  )
+    .trim()
+    .toUpperCase() || 'USD';
+  return {
+    enabled,
+    totalAmount,
+    startDate: parsedStartDate?.text || '',
+    years,
+    reportingMode,
+    autoRenew,
+    currency
+  };
+}
+
+function calculateGrafanaFlexCommitAmortizedAmount(range = {}, config = {}) {
+  if (!config?.enabled || !Number.isFinite(Number(config.totalAmount)) || Number(config.totalAmount) <= 0) {
+    return {
+      amount: 0,
+      overlapDays: 0,
+      contractWindows: []
+    };
+  }
+  const rangeStart = parseIsoDateOnly(range.periodStart);
+  const rangeEnd = parseIsoDateOnly(range.periodEnd);
+  if (!rangeStart || !rangeEnd || rangeEnd.date.getTime() < rangeStart.date.getTime()) {
+    return {
+      amount: 0,
+      overlapDays: 0,
+      contractWindows: []
+    };
+  }
+
+  const startDate = parseIsoDateOnly(config.startDate || '');
+  if (!startDate) {
+    return {
+      amount: 0,
+      overlapDays: 0,
+      contractWindows: []
+    };
+  }
+
+  const windows = [];
+  const maxWindowCount = config.autoRenew ? 100 : 1;
+  const contractYears = Math.max(1, Number(config.years || 3));
+  let windowStart = new Date(startDate.date.getTime());
+  let overlapDays = 0;
+  let weightedAmount = 0;
+
+  for (let index = 0; index < maxWindowCount; index += 1) {
+    const windowEndExclusive = new Date(windowStart.getTime());
+    windowEndExclusive.setUTCFullYear(windowEndExclusive.getUTCFullYear() + contractYears);
+    const windowEnd = new Date(windowEndExclusive.getTime() - 86_400_000);
+    const windowStartText = windowStart.toISOString().slice(0, 10);
+    const windowEndText = windowEnd.toISOString().slice(0, 10);
+    const contractDays = countOverlapDaysInclusive(windowStartText, windowEndText, windowStartText, windowEndText);
+    const overlap = countOverlapDaysInclusive(windowStartText, windowEndText, range.periodStart, range.periodEnd);
+    if (overlap > 0 && contractDays > 0) {
+      const contribution = Number(config.totalAmount) * (overlap / contractDays);
+      weightedAmount += contribution;
+      overlapDays += overlap;
+      windows.push({
+        startDate: windowStartText,
+        endDate: windowEndText,
+        overlapDays: overlap,
+        contractDays,
+        contribution
+      });
+    }
+
+    if (!config.autoRenew) {
+      break;
+    }
+    if (windowStart.getTime() > rangeEnd.date.getTime()) {
+      break;
+    }
+    if (windowEnd.getTime() >= rangeEnd.date.getTime()) {
+      break;
+    }
+    windowStart = windowEndExclusive;
+  }
+
+  return {
+    amount: weightedAmount,
+    overlapDays,
+    contractWindows: windows
+  };
+}
+
+async function fetchGrafanaCloudJson(url, options = {}, label = 'Grafana Cloud request') {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (_error) {
+      payload = null;
+    }
+  }
+  if (!response.ok) {
+    const details = text || JSON.stringify(payload || {});
+    throw new Error(`${label} failed (${response.status}): ${details.slice(0, 400)}`);
+  }
+  return payload || {};
+}
+
+async function fetchGrafanaCloudText(url, options = {}, label = 'Grafana Cloud request') {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`${label} failed (${response.status}): ${text.slice(0, 400)}`);
+  }
+  return text;
+}
+
+async function fetchGrafanaCloudUsageMetricPoint({
+  stackBaseUrl,
+  token,
+  query,
+  evalTime,
+  label
+}) {
+  const queryUrl = new URL('/api/datasources/proxy/uid/grafanacloud-usage/api/v1/query', stackBaseUrl);
+  queryUrl.searchParams.set('query', query);
+  if (evalTime) {
+    queryUrl.searchParams.set('time', evalTime);
+  }
+
+  const payload = await fetchGrafanaCloudJson(
+    queryUrl.toString(),
+    {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${token}`,
+        accept: 'application/json'
+      }
+    },
+    label || 'Grafana Cloud usage metrics query'
+  );
+
+  const rows = Array.isArray(payload?.data?.result) ? payload.data.result : [];
+  if (!rows.length) {
+    return null;
+  }
+
+  let total = 0;
+  for (const row of rows) {
+    const numeric = normalizeNumber(row?.value?.[1] ?? row?.value ?? row?.amount ?? row?.cost ?? row?.total);
+    if (Number.isFinite(numeric)) {
+      total += numeric;
+    }
+  }
+  return Number.isFinite(total) ? total : null;
+}
+
+async function fetchSendgridJson(url, options = {}, label = 'SendGrid request') {
+  const response = await fetch(url, options);
+  const text = await response.text();
+  let payload = null;
+  if (text) {
+    try {
+      payload = JSON.parse(text);
+    } catch (_error) {
+      payload = null;
+    }
+  }
+  if (!response.ok) {
+    const details = text || JSON.stringify(payload || {});
+    throw new Error(`${label} failed (${response.status}): ${details.slice(0, 300)}`);
+  }
+  return payload;
+}
+
+function parseSendgridInvoices(payload) {
+  if (Array.isArray(payload?.result)) {
+    return payload.result;
+  }
+  if (Array.isArray(payload?.invoices)) {
+    return payload.invoices;
+  }
+  if (Array.isArray(payload?.data?.items)) {
+    return payload.data.items;
+  }
+  if (Array.isArray(payload?.data)) {
+    return payload.data;
+  }
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+  return [];
+}
+
+function normalizeSendgridMonthOffset(value, fallback = 1) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return fallback;
+  }
+  return Math.max(-12, Math.min(12, Math.floor(numeric)));
+}
+
+function buildSendgridInvoicePeriod(invoice = {}, monthOffset = 1) {
+  const explicitStart = parseIsoDateOnly(invoice?.periodStart);
+  const explicitEnd = parseIsoDateOnly(invoice?.periodEnd);
+  if (explicitStart && explicitEnd) {
+    return {
+      periodStart: explicitStart.text,
+      periodEnd: explicitEnd.text,
+      periodEndExclusive: addDaysToDateOnly(explicitEnd.text, 1)
+    };
+  }
+
+  const invoiceDate = parseIsoDateOnly(
+    pickFirstString([
+      invoice?.date,
+      invoice?.invoiceDate,
+      invoice?.invoice_date,
+      invoice?.due_date,
+      invoice?.dueDate
+    ])
+  );
+  if (!invoiceDate) {
+    return {
+      periodStart: null,
+      periodEnd: null,
+      periodEndExclusive: null
+    };
+  }
+
+  const coverageMonthStart = new Date(
+    Date.UTC(invoiceDate.date.getUTCFullYear(), invoiceDate.date.getUTCMonth() - monthOffset, 1)
+  );
+  const coverageMonthEnd = new Date(
+    Date.UTC(coverageMonthStart.getUTCFullYear(), coverageMonthStart.getUTCMonth() + 1, 0)
+  );
+  const periodStart = coverageMonthStart.toISOString().slice(0, 10);
+  const periodEnd = coverageMonthEnd.toISOString().slice(0, 10);
+  return {
+    periodStart,
+    periodEnd,
+    periodEndExclusive: addDaysToDateOnly(periodEnd, 1)
+  };
+}
+
 function parseWasabiWacmItems(payload) {
   if (Array.isArray(payload?.data)) {
     return payload.data;
@@ -2417,6 +3279,817 @@ async function pullWasabiMainBilling(vendor, credentials, options = {}) {
   };
 }
 
+async function pullSendgridBilling(vendor, credentials, options = {}) {
+  const apiKey = pickFirstString([
+    credentials?.apiKey,
+    credentials?.api_key,
+    credentials?.billingApiKey,
+    credentials?.sendgridApiKey,
+    process.env.SENDGRID_BILLING_API_KEY
+  ]);
+  if (!apiKey) {
+    throw new Error('SendGrid billing pull requires apiKey (or SENDGRID_BILLING_API_KEY).');
+  }
+
+  const endpoint = normalizeSendgridBillingEndpoint(
+    pickFirstString([
+      credentials?.billingEndpoint,
+      credentials?.endpoint,
+      credentials?.baseUrl,
+      process.env.SENDGRID_BILLING_ENDPOINT
+    ])
+  );
+  const range = resolveBillingRange(options);
+  const accountId = pickFirstString([
+    credentials?.accountId,
+    vendor?.accountId,
+    process.env.SENDGRID_BILLING_ACCOUNT_ID
+  ]);
+  const accountName = pickFirstString([
+    credentials?.accountName,
+    credentials?.displayName,
+    vendor?.name,
+    process.env.SENDGRID_BILLING_ACCOUNT_LABEL
+  ]);
+  const monthOffset = normalizeSendgridMonthOffset(
+    credentials?.invoiceMonthOffset ?? process.env.SENDGRID_BILLING_MONTH_OFFSET,
+    1
+  );
+  const defaultCurrency =
+    String(credentials?.currency || process.env.SENDGRID_BILLING_CURRENCY || 'USD')
+      .trim()
+      .toUpperCase() || 'USD';
+
+  const payload = await fetchSendgridJson(
+    endpoint,
+    {
+      method: 'GET',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        accept: 'application/json'
+      }
+    },
+    'SendGrid invoice list request'
+  );
+
+  const invoicesRaw = parseSendgridInvoices(payload);
+  const invoices = [];
+  for (const row of invoicesRaw) {
+    const amount = normalizeNumber(row?.amount ?? row?.total_amount ?? row?.totalAmount ?? row?.total);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      continue;
+    }
+
+    const invoicePeriod = buildSendgridInvoicePeriod(row, monthOffset);
+    if (
+      !invoicePeriod?.periodStart ||
+      !invoicePeriod?.periodEndExclusive ||
+      !intervalsOverlap(invoicePeriod.periodStart, invoicePeriod.periodEndExclusive, range.periodStart, range.periodEndExclusive)
+    ) {
+      continue;
+    }
+
+    const invoiceId = String(row?.id || '').trim() || null;
+    const invoiceNumber = String(row?.invoice_number || row?.invoiceNumber || '').trim() || null;
+    const invoiceDate = String(row?.date || row?.invoiceDate || row?.invoice_date || '').trim() || null;
+    const dueDate = String(row?.due_date || row?.dueDate || '').trim() || null;
+    const status = String(row?.status || '').trim() || null;
+    const pdfStatus = String(row?.pdf_status || row?.pdfStatus || '').trim() || null;
+    const currency =
+      String(row?.currency || row?.currencyCode || defaultCurrency)
+        .trim()
+        .toUpperCase() || defaultCurrency;
+    const resourceType = normalizeResourceType(
+      row?.resourceType || row?.chargeType || row?.plan || row?.type || 'Invoice charge'
+    );
+    const detailName = normalizeResourceType(invoiceNumber || invoiceId || `${invoicePeriod.periodStart} invoice`, resourceType);
+    const refAccount = normalizeRackspaceRefSegment(accountId || 'account');
+    const refInvoice = normalizeRackspaceRefSegment(invoiceNumber || invoiceId || invoicePeriod.periodStart || 'invoice');
+    const resourceRef = `sendgrid://${refAccount}/invoice/${refInvoice}`;
+
+    invoices.push({
+      invoiceId,
+      invoiceNumber,
+      invoiceDate,
+      dueDate,
+      status,
+      pdfStatus,
+      periodStart: invoicePeriod.periodStart,
+      periodEnd: invoicePeriod.periodEnd,
+      amount,
+      currency,
+      resourceType,
+      detailName,
+      resourceRef,
+      unpaidBalance: normalizeNumber(row?.unpaid_balance ?? row?.unpaidBalance ?? row?.balance),
+      sourceRow: row
+    });
+  }
+
+  const lineItems = invoices.map((invoice) => ({
+    id: invoice.invoiceId || invoice.invoiceNumber || invoice.resourceRef,
+    invoiceId: invoice.invoiceId,
+    invoiceNumber: invoice.invoiceNumber,
+    invoiceDate: invoice.invoiceDate,
+    dueDate: invoice.dueDate,
+    status: invoice.status,
+    pdfStatus: invoice.pdfStatus,
+    periodStart: invoice.periodStart,
+    periodEnd: invoice.periodEnd,
+    accountId: accountId || null,
+    accountName: accountName || null,
+    resourceType: invoice.resourceType,
+    detailName: invoice.detailName,
+    resourceRef: invoice.resourceRef,
+    currency: invoice.currency,
+    amount: invoice.amount,
+    unpaidBalance: invoice.unpaidBalance
+  }));
+  const resourceBreakdown = summarizeBreakdownRows(
+    lineItems.map((line) => ({
+      resourceType: line.resourceType,
+      currency: line.currency || defaultCurrency,
+      amount: line.amount
+    }))
+  );
+  const amount = lineItems.reduce((sum, row) => sum + normalizeNumber(row.amount), 0);
+  const currency = resourceBreakdown[0]?.currency || defaultCurrency;
+
+  return {
+    periodStart: range.periodStart,
+    periodEnd: range.periodEnd,
+    amount,
+    currency,
+    source: 'sendgrid-billing-api',
+    raw: {
+      endpoint,
+      accountId: accountId || null,
+      accountName: accountName || null,
+      monthOffset,
+      accountBalance: normalizeNumber(payload?.account_balance ?? payload?.accountBalance),
+      invoices,
+      lineItems,
+      resourceBreakdown,
+      totalFetched: invoicesRaw.length,
+      totalMatched: invoices.length
+    }
+  };
+}
+
+async function pullGrafanaCloudBilling(vendor, credentials, options = {}) {
+  const token = pickFirstString([
+    credentials?.accessPolicyToken,
+    credentials?.apiToken,
+    credentials?.apiKey,
+    credentials?.token,
+    process.env.GRAFANA_CLOUD_ACCESS_POLICY_TOKEN,
+    process.env.GRAFANA_CLOUD_API_TOKEN,
+    process.env.GRAFANA_CLOUD_API_KEY
+  ]);
+  const stackToken = pickFirstString([
+    credentials?.stackAccessPolicyToken,
+    credentials?.stackApiToken,
+    credentials?.stackToken,
+    credentials?.grafanaStackToken,
+    process.env.GRAFANA_CLOUD_STACK_ACCESS_POLICY_TOKEN,
+    process.env.GRAFANA_CLOUD_STACK_API_TOKEN,
+    process.env.GRAFANA_CLOUD_STACK_TOKEN,
+    token
+  ]);
+  const orgSlug = pickFirstString([
+    credentials?.orgSlug,
+    credentials?.slug,
+    credentials?.org,
+    vendor?.accountId,
+    process.env.GRAFANA_CLOUD_ORG_SLUG
+  ]);
+  const accountId = String(
+    credentials?.accountId || vendor?.accountId || orgSlug || 'grafana-cloud'
+  ).trim();
+  const accountName = String(vendor?.name || credentials?.accountName || orgSlug || 'Grafana Cloud account').trim();
+
+  if (!token || !orgSlug) {
+    throw new Error('Grafana Cloud billing pull requires orgSlug and access policy token/api key.');
+  }
+
+  const range = resolveBillingRange(options);
+  const months = buildMonthsForBillingRange(range);
+  if (!months.length) {
+    throw new Error(`Grafana Cloud billing range is invalid (${range.periodStart} to ${range.periodEnd}).`);
+  }
+
+  const baseUrl = normalizeGrafanaCloudApiBaseUrl(
+    credentials?.apiBaseUrl || credentials?.baseUrl || process.env.GRAFANA_CLOUD_API_BASE_URL
+  );
+  const stackBaseUrl = normalizeGrafanaCloudStackBaseUrl(
+    credentials?.stackBaseUrl ||
+      credentials?.stackUrl ||
+      credentials?.grafanaStackUrl ||
+      credentials?.dashboardUrl ||
+      process.env.GRAFANA_CLOUD_STACK_URL,
+    orgSlug
+  );
+  const endpointRoot = `${baseUrl}/api/orgs/${encodeURIComponent(orgSlug)}/billed-usage`;
+  const focusEndpoint = `${baseUrl}/api/orgs/${encodeURIComponent(orgSlug)}/focus`;
+  const headers = {
+    authorization: `Bearer ${token}`,
+    accept: 'application/json'
+  };
+
+  const lineItems = [];
+  const monthlySummaries = [];
+  const dailyIngestRows = [];
+  const focusSummary = {
+    requested: false,
+    endpoint: focusEndpoint,
+    periodRangeStart: `${range.periodStart}T00:00:00.000Z`,
+    periodRangeEnd: `${range.periodEnd}T23:59:59.999Z`,
+    granularity: 'monthly',
+    csvHeader: [],
+    rowCount: 0,
+    matchedColumns: {},
+    rows: [],
+    error: null
+  };
+  const usageMetricsSummary = {
+    requested: false,
+    endpoint: `${stackBaseUrl}/api/datasources/proxy/uid/grafanacloud-usage/api/v1/query`,
+    tokenSource:
+      stackToken && stackToken !== token
+        ? 'stack-token'
+        : token
+          ? 'org-token'
+          : 'none',
+    metrics: [],
+    months: [],
+    lineItemsGenerated: 0,
+    error: null
+  };
+  let usageAmount = 0;
+  let currency = String(
+    credentials?.currency || process.env.GRAFANA_CLOUD_CURRENCY || 'USD'
+  ).trim().toUpperCase() || 'USD';
+
+  for (const monthInfo of months) {
+    const monthUrl = new URL(endpointRoot);
+    monthUrl.searchParams.set('month', String(monthInfo.month));
+    monthUrl.searchParams.set('year', String(monthInfo.year));
+
+    const payload = await fetchGrafanaCloudJson(
+      monthUrl.toString(),
+      {
+        method: 'GET',
+        headers
+      },
+      `Grafana Cloud billed usage ${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`
+    );
+
+    const itemRows = parseGrafanaCloudBilledUsageItems(payload);
+    const overlapDays = countOverlapDaysInclusive(
+      monthInfo.periodStart,
+      monthInfo.periodEnd,
+      range.periodStart,
+      range.periodEnd
+    );
+    const monthDays = countOverlapDaysInclusive(
+      monthInfo.periodStart,
+      monthInfo.periodEnd,
+      monthInfo.periodStart,
+      monthInfo.periodEnd
+    );
+    if (!overlapDays || !monthDays) {
+      continue;
+    }
+    const overlapRatio = overlapDays / monthDays;
+    const overlapDates = listDatesInRange(
+      maxDateOnly(monthInfo.periodStart, range.periodStart),
+      parseIsoDateOnly(range.periodEnd)?.date.getTime() < parseIsoDateOnly(monthInfo.periodEnd)?.date.getTime()
+        ? range.periodEnd
+        : monthInfo.periodEnd
+    );
+    const sampledUsageDate = overlapDates[0] || monthInfo.periodStart;
+
+    const monthlyTotalAmount = itemRows.reduce((sum, item) => sum + normalizeNumber(item?.amountDue), 0);
+    usageAmount += monthlyTotalAmount * overlapRatio;
+    monthlySummaries.push({
+      periodStart: monthInfo.periodStart,
+      periodEnd: monthInfo.periodEnd,
+      month: monthInfo.month,
+      year: monthInfo.year,
+      overlapDays,
+      monthDays,
+      overlapRatio,
+      itemCount: itemRows.length,
+      totalAmountDue: Math.round(monthlyTotalAmount * 100) / 100
+    });
+
+    for (const item of itemRows) {
+      const amountDue = normalizeNumber(item?.amountDue);
+      if (!Number.isFinite(amountDue) || amountDue <= 0) {
+        continue;
+      }
+      const dimensionName = normalizeResourceType(
+        item?.dimensionName || item?.itemType || item?.description || 'Usage',
+        'Usage'
+      );
+      const dimensionKey = normalizeGrafanaCloudDimensionKey(dimensionName) || 'usage';
+      const unit = String(item?.unit || '').trim() || null;
+      const itemCurrency = String(item?.currency || currency).trim().toUpperCase() || currency;
+      currency = itemCurrency || currency;
+
+      const details = parseGrafanaCloudBilledUsageDetails(item);
+      const detailRows = details.length
+        ? details
+        : [
+            {
+              stackName: accountName,
+              stackSlug: normalizeGrafanaCloudStackSlug(accountName),
+              totalUsage: item?.totalUsage,
+              ingestUsage: item?.ingestUsage,
+              queryUsage: item?.queryUsage,
+              activeSeries: item?.activeSeries,
+              dpm: item?.dpm
+            }
+          ];
+
+      const detailCount = Math.max(1, detailRows.length);
+      const proratedAmount = amountDue * overlapRatio;
+      const amountPerDetail = proratedAmount / detailCount;
+      const amountPerDayPerDetail = overlapDates.length ? amountPerDetail / overlapDates.length : amountPerDetail;
+
+      for (const detail of detailRows) {
+        const stackName = String(
+          detail?.stackName || detail?.instanceName || detail?.name || detail?.slug || accountName
+        )
+          .replace(/\s+/g, ' ')
+          .trim() || accountName;
+        const stackSlug = normalizeGrafanaCloudStackSlug(detail?.stackSlug || detail?.stackId || stackName);
+        const totalUsage = getNestedNumber(detail?.totalUsage ?? detail?.usage ?? item?.totalUsage);
+        const ingestUsage = getNestedNumber(
+          detail?.ingestUsage ??
+            detail?.ingestionUsage ??
+            detail?.logsIngestUsage ??
+            detail?.metricsIngestUsage ??
+            item?.ingestUsage
+        );
+        const queryUsage = getNestedNumber(detail?.queryUsage ?? detail?.queriesUsage ?? item?.queryUsage);
+        const activeSeries = getNestedNumber(detail?.activeSeries ?? item?.activeSeries);
+        const dpm = getNestedNumber(detail?.dpm ?? item?.dpm);
+        const resourceRef = `grafana-cloud://${normalizeRackspaceRefSegment(orgSlug)}/${normalizeRackspaceRefSegment(
+          stackSlug
+        )}/${normalizeRackspaceRefSegment(dimensionKey)}`;
+
+        lineItems.push({
+          id: `${monthInfo.year}${String(monthInfo.month).padStart(2, '0')}:${stackSlug}:${dimensionKey}`,
+          accountId,
+          accountName,
+          periodStart: range.periodStart,
+          periodEnd: range.periodEnd,
+          invoiceId: null,
+          resourceType: dimensionName,
+          detailName: stackName,
+          amount: amountPerDetail,
+          currency: itemCurrency,
+          resourceRef,
+          quantity: totalUsage || null,
+          quantityUnit: unit,
+          sourceType: 'grafana_cloud_billed_usage',
+          usageMonth: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+          stackSlug,
+          stackName,
+          dimensionKey,
+          dimensionName
+        });
+
+        for (const usageDate of overlapDates) {
+          dailyIngestRows.push({
+            provider: 'grafana-cloud',
+            accountId,
+            orgSlug,
+            usageDate,
+            dimensionKey,
+            dimensionName,
+            stackSlug,
+            stackName,
+            unit,
+            totalUsage: Number.isFinite(totalUsage) ? totalUsage / Math.max(1, overlapDates.length) : null,
+            ingestUsage: Number.isFinite(ingestUsage) ? ingestUsage / Math.max(1, overlapDates.length) : null,
+            queryUsage: Number.isFinite(queryUsage) ? queryUsage / Math.max(1, overlapDates.length) : null,
+            activeSeries: Number.isFinite(activeSeries) ? activeSeries : null,
+            dpm: Number.isFinite(dpm) ? dpm : null,
+            amountDue: amountPerDayPerDetail,
+            currency: itemCurrency,
+            isEstimated: true,
+            source: 'grafana-cloud-billed-usage',
+            raw: {
+              month: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+              overlapRatio,
+              item: item || {},
+              detail: detail || {}
+            }
+          });
+        }
+        if (!overlapDates.length) {
+          dailyIngestRows.push({
+            provider: 'grafana-cloud',
+            accountId,
+            orgSlug,
+            usageDate: sampledUsageDate,
+            dimensionKey,
+            dimensionName,
+            stackSlug,
+            stackName,
+            unit,
+            totalUsage: Number.isFinite(totalUsage) ? totalUsage : null,
+            ingestUsage: Number.isFinite(ingestUsage) ? ingestUsage : null,
+            queryUsage: Number.isFinite(queryUsage) ? queryUsage : null,
+            activeSeries: Number.isFinite(activeSeries) ? activeSeries : null,
+            dpm: Number.isFinite(dpm) ? dpm : null,
+            amountDue: amountPerDetail,
+            currency: itemCurrency,
+            isEstimated: true,
+            source: 'grafana-cloud-billed-usage',
+            raw: {
+              month: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+              overlapRatio,
+              item: item || {},
+              detail: detail || {}
+            }
+          });
+        }
+      }
+    }
+  }
+
+  if (!lineItems.length) {
+    focusSummary.requested = true;
+    const focusUrl = new URL(focusEndpoint);
+    focusUrl.searchParams.set('periodRangeStart', focusSummary.periodRangeStart);
+    focusUrl.searchParams.set('periodRangeEnd', focusSummary.periodRangeEnd);
+    focusUrl.searchParams.set('granularity', focusSummary.granularity);
+
+    try {
+      const focusCsv = await fetchGrafanaCloudText(
+        focusUrl.toString(),
+        {
+          method: 'GET',
+          headers: {
+            authorization: `Bearer ${token}`,
+            accept: 'text/csv'
+          }
+        },
+        'Grafana Cloud focus usage'
+      );
+      const parsedFocus = parseGrafanaCloudFocusCsv(focusCsv, {
+        defaultCurrency: currency || 'USD'
+      });
+      focusSummary.csvHeader = parsedFocus.header || [];
+      focusSummary.rowCount = Number(parsedFocus.rows?.length || 0);
+      focusSummary.matchedColumns = parsedFocus.matchedColumns || {};
+      focusSummary.rows = parsedFocus.rows || [];
+
+      if (Array.isArray(parsedFocus.rows) && parsedFocus.rows.length) {
+        for (const row of parsedFocus.rows) {
+          const amountDue = normalizeNumber(row?.overageAmount);
+          if (!Number.isFinite(amountDue) || amountDue <= 0) {
+            continue;
+          }
+          const dimensionName = normalizeResourceType(row?.productName || row?.dimensionId || 'Usage', 'Usage');
+          const dimensionKey = normalizeGrafanaCloudDimensionKey(row?.dimensionId || dimensionName) || 'usage';
+          const stackName = dimensionName;
+          const stackSlug = normalizeGrafanaCloudStackSlug(dimensionName);
+          const itemCurrency = String(row?.currency || currency || 'USD').trim().toUpperCase() || 'USD';
+          const resourceRef = `grafana-cloud://${normalizeRackspaceRefSegment(orgSlug)}/${normalizeRackspaceRefSegment(
+            stackSlug
+          )}/${normalizeRackspaceRefSegment(dimensionKey)}`;
+
+          lineItems.push({
+            id: `focus:${stackSlug}:${dimensionKey}:${range.periodStart}:${range.periodEnd}`,
+            accountId,
+            accountName,
+            periodStart: range.periodStart,
+            periodEnd: range.periodEnd,
+            invoiceId: null,
+            resourceType: dimensionName,
+            detailName: stackName,
+            amount: amountDue,
+            currency: itemCurrency,
+            resourceRef,
+            quantity: Number.isFinite(Number(row?.totalUsage)) ? Number(row.totalUsage) : null,
+            quantityUnit: null,
+            sourceType: 'grafana_cloud_focus_overage',
+            usageMonth: `${range.periodStart}:${range.periodEnd}`,
+            stackSlug,
+            stackName,
+            dimensionKey,
+            dimensionName
+          });
+
+          dailyIngestRows.push({
+            provider: 'grafana-cloud',
+            accountId,
+            orgSlug,
+            usageDate: range.periodEnd,
+            dimensionKey,
+            dimensionName,
+            stackSlug,
+            stackName,
+            unit: null,
+            totalUsage: Number.isFinite(Number(row?.totalUsage)) ? Number(row.totalUsage) : null,
+            ingestUsage: null,
+            queryUsage: null,
+            activeSeries: null,
+            dpm: null,
+            amountDue,
+            currency: itemCurrency,
+            isEstimated: false,
+            source: 'grafana-cloud-focus',
+            raw: row?.raw && typeof row.raw === 'object' ? row.raw : null
+          });
+        }
+      }
+    } catch (error) {
+      focusSummary.error = error?.message || 'Grafana Cloud focus usage request failed.';
+    }
+  }
+
+  usageMetricsSummary.requested = true;
+  try {
+    let metricQuerySucceeded = false;
+    let metricQueryFailed = false;
+    let lastMetricError = null;
+    const initialLineItemCount = lineItems.length;
+    const shouldGenerateFallbackLineItems = !lineItems.length;
+
+    for (const monthInfo of months) {
+      const overlapDays = countOverlapDaysInclusive(
+        monthInfo.periodStart,
+        monthInfo.periodEnd,
+        range.periodStart,
+        range.periodEnd
+      );
+      const monthDays = countOverlapDaysInclusive(
+        monthInfo.periodStart,
+        monthInfo.periodEnd,
+        monthInfo.periodStart,
+        monthInfo.periodEnd
+      );
+      if (!overlapDays || !monthDays) {
+        continue;
+      }
+      const overlapRatio = overlapDays / monthDays;
+      const overlapEvalDate =
+        monthInfo.periodEnd > range.periodEnd
+          ? range.periodEnd
+          : monthInfo.periodEnd < range.periodStart
+          ? range.periodStart
+          : monthInfo.periodEnd;
+      const evalTime = `${overlapEvalDate}T23:59:59.000Z`;
+      const usageStackSlug = normalizeGrafanaCloudStackSlug(accountName);
+      const usageStackName = accountName;
+      const metricValues = [];
+
+      for (const metricDef of GRAFANA_CLOUD_USAGE_DETAIL_METRICS) {
+        const metricLabel = `Grafana Cloud usage metric ${metricDef.key} ${monthInfo.year}-${String(monthInfo.month).padStart(
+          2,
+          '0'
+        )}`;
+        let value = null;
+        try {
+          value = await fetchGrafanaCloudUsageMetricPoint({
+            stackBaseUrl,
+            token: stackToken,
+            query: metricDef.query,
+            evalTime,
+            label: metricLabel
+          });
+          metricQuerySucceeded = true;
+        } catch (metricError) {
+          metricQueryFailed = true;
+          lastMetricError = metricError?.message || 'Usage metric query failed.';
+          metricValues.push({
+            key: metricDef.key,
+            productKey: metricDef.productKey,
+            productLabel: metricDef.productLabel,
+            label: metricDef.label,
+            kind: metricDef.kind,
+            unit: metricDef.unit,
+            query: metricDef.query,
+            value: null,
+            error: metricError?.message || 'Usage metric query failed.'
+          });
+          continue;
+        }
+
+        const numeric = normalizeNumber(value);
+        const metricValue = Number.isFinite(numeric) ? Math.max(0, numeric) : null;
+        const proratedMetricValue = Number.isFinite(metricValue)
+          ? Math.round(metricValue * overlapRatio * 1_000_000) / 1_000_000
+          : null;
+        metricValues.push({
+          key: metricDef.key,
+          productKey: metricDef.productKey,
+          productLabel: metricDef.productLabel,
+          label: metricDef.label,
+          kind: metricDef.kind,
+          unit: metricDef.unit,
+          query: metricDef.query,
+          value: metricValue,
+          proratedValue: proratedMetricValue,
+          overlapRatio
+        });
+
+        if (Number.isFinite(proratedMetricValue)) {
+          const detailDimensionKey =
+            normalizeGrafanaCloudDimensionKey(`detail_${metricDef.key}`) ||
+            normalizeGrafanaCloudDimensionKey(metricDef.key) ||
+            'detail_metric';
+          dailyIngestRows.push({
+            provider: 'grafana-cloud',
+            accountId,
+            orgSlug,
+            usageDate: overlapEvalDate,
+            dimensionKey: detailDimensionKey,
+            dimensionName: String(metricDef.label || metricDef.key || 'Usage metric'),
+            stackSlug: usageStackSlug,
+            stackName: usageStackName,
+            unit: String(metricDef.unit || '').trim() || null,
+            totalUsage: proratedMetricValue,
+            ingestUsage: null,
+            queryUsage: null,
+            activeSeries: null,
+            dpm: null,
+            amountDue: null,
+            currency,
+            isEstimated: false,
+            source: 'grafana-cloud-usage-metrics-detail',
+            raw: {
+              isDetailMetric: true,
+              productKey: metricDef.productKey,
+              productLabel: metricDef.productLabel,
+              metricKey: metricDef.key,
+              metricLabel: metricDef.label,
+              metricKind: metricDef.kind,
+              metricUnit: metricDef.unit || null,
+              metricValue: proratedMetricValue,
+              metricRawValue: metricValue,
+              month: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+              overlapRatio,
+              query: metricDef.query
+            }
+          });
+        }
+
+        if (!shouldGenerateFallbackLineItems || !metricDef.includeAsLineItem) {
+          continue;
+        }
+        const amountDue = Number.isFinite(proratedMetricValue) ? Math.round(proratedMetricValue * 100) / 100 : 0;
+        if (!Number.isFinite(amountDue) || amountDue <= 0) {
+          continue;
+        }
+        const fallbackDimensionKey =
+          normalizeGrafanaCloudDimensionKey(metricDef.lineItemKey || metricDef.productKey || metricDef.key) || 'usage';
+        const fallbackDimensionName = normalizeResourceType(
+          metricDef.lineItemLabel || metricDef.productLabel || metricDef.label || metricDef.key,
+          'Usage'
+        );
+        const resourceRef = `grafana-cloud://${normalizeRackspaceRefSegment(orgSlug)}/usage-metrics/${normalizeRackspaceRefSegment(
+          fallbackDimensionKey
+        )}`;
+        lineItems.push({
+          id: `usage-metric:${fallbackDimensionKey}:${monthInfo.year}${String(monthInfo.month).padStart(2, '0')}`,
+          accountId,
+          accountName,
+          periodStart: range.periodStart,
+          periodEnd: range.periodEnd,
+          invoiceId: null,
+          resourceType: fallbackDimensionName,
+          detailName: accountName,
+          amount: amountDue,
+          currency,
+          resourceRef,
+          quantity: null,
+          quantityUnit: null,
+          sourceType: 'grafana_cloud_usage_metrics',
+          usageMonth: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+          stackSlug: usageStackSlug,
+          stackName: usageStackName,
+          dimensionKey: fallbackDimensionKey,
+          dimensionName: fallbackDimensionName
+        });
+
+        dailyIngestRows.push({
+          provider: 'grafana-cloud',
+          accountId,
+          orgSlug,
+          usageDate: overlapEvalDate,
+          dimensionKey: fallbackDimensionKey,
+          dimensionName: fallbackDimensionName,
+          stackSlug: usageStackSlug,
+          stackName: usageStackName,
+          unit: 'USD',
+          totalUsage: null,
+          ingestUsage: null,
+          queryUsage: null,
+          activeSeries: null,
+          dpm: null,
+          amountDue,
+          currency,
+          isEstimated: false,
+          source: 'grafana-cloud-usage-metrics',
+          raw: {
+            metric: metricDef.key,
+            query: metricDef.query,
+            value: metricValue,
+            month: `${monthInfo.year}-${String(monthInfo.month).padStart(2, '0')}`,
+            overlapRatio
+          }
+        });
+      }
+
+      usageMetricsSummary.months.push({
+        periodStart: monthInfo.periodStart,
+        periodEnd: monthInfo.periodEnd,
+        month: monthInfo.month,
+        year: monthInfo.year,
+        overlapRatio,
+        metrics: metricValues
+      });
+    }
+    usageMetricsSummary.metrics = GRAFANA_CLOUD_USAGE_DETAIL_METRICS.map((item) => ({
+      key: item.key,
+      productKey: item.productKey,
+      productLabel: item.productLabel,
+      label: item.label,
+      kind: item.kind,
+      unit: item.unit,
+      query: item.query
+    }));
+    usageMetricsSummary.lineItemsGenerated = Math.max(0, lineItems.length - initialLineItemCount);
+    if (metricQueryFailed && !metricQuerySucceeded) {
+      usageMetricsSummary.error =
+        lastMetricError || 'Grafana Cloud usage metrics query failed for all products.';
+    }
+  } catch (error) {
+    usageMetricsSummary.error = error?.message || 'Grafana Cloud usage metrics fallback failed.';
+  }
+
+  const resourceBreakdown = summarizeBreakdownRows(
+    lineItems.map((row) => ({
+      resourceType: row.resourceType,
+      currency: row.currency || currency,
+      amount: row.amount
+    }))
+  );
+  const computedUsageAmount = lineItems.reduce((sum, row) => sum + normalizeNumber(row.amount), 0);
+  if (computedUsageAmount > 0) {
+    usageAmount = computedUsageAmount;
+  }
+
+  const flex = resolveGrafanaFlexCommitConfig(credentials);
+  const flexAmortized = calculateGrafanaFlexCommitAmortizedAmount(range, flex);
+  const usageTotal = Math.round(usageAmount * 100) / 100;
+  const amortizedTotal = Math.round(Number(flexAmortized.amount || 0) * 100) / 100;
+  let reportedAmount = usageTotal;
+  if (flex.enabled) {
+    if (flex.reportingMode === 'max') {
+      reportedAmount = Math.max(usageTotal, amortizedTotal);
+    } else if (flex.reportingMode === 'amortized') {
+      reportedAmount = amortizedTotal;
+    } else {
+      reportedAmount = usageTotal;
+    }
+  }
+
+  return {
+    periodStart: range.periodStart,
+    periodEnd: range.periodEnd,
+    amount: reportedAmount,
+    currency: currency || flex.currency || 'USD',
+    source: 'grafana-cloud-billed-usage-api',
+    raw: {
+      endpoint: endpointRoot,
+      accountId,
+      accountName,
+      orgSlug,
+      months: monthlySummaries,
+      lineItems,
+      dailyIngestRows,
+      resourceBreakdown,
+      usageAmount: usageTotal,
+      focus: focusSummary,
+      usageMetrics: usageMetricsSummary,
+      flexCommit: {
+        ...flex,
+        amortizedAmount: amortizedTotal,
+        reportedAmount,
+        overlapDays: flexAmortized.overlapDays,
+        contractWindows: flexAmortized.contractWindows
+      }
+    }
+  };
+}
+
 async function pullGcpBilling(vendor, credentials, options = {}) {
   const billingAccountId = String(credentials?.billingAccountId || vendor.accountId || '').trim();
   const manualAmount = credentials && Number.isFinite(Number(credentials.manualMonthlyCost))
@@ -2456,6 +4129,10 @@ async function pullBillingForVendor(vendor, credentials, options = {}) {
       return pullAzureBilling(vendor, credentials, options);
     case 'aws':
       return pullAwsBilling(vendor, credentials, options);
+    case 'sendgrid':
+      return pullSendgridBilling(vendor, credentials, options);
+    case 'grafana-cloud':
+      return pullGrafanaCloudBilling(vendor, credentials, options);
     case 'wasabi':
     case 'wasabi-wacm':
       return pullWasabiBilling(vendor, credentials, options);
@@ -2472,6 +4149,7 @@ async function pullBillingForVendor(vendor, credentials, options = {}) {
 
 module.exports = {
   pullBillingForVendor,
+  pullGrafanaCloudBilling,
   getCurrentMonthRange,
   resolveBillingRange
 };

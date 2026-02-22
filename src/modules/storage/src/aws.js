@@ -14,6 +14,7 @@ const {
 } = require('@aws-sdk/client-s3');
 const { CloudWatchClient, GetMetricStatisticsCommand } = require('@aws-sdk/client-cloudwatch');
 const { EFSClient, DescribeFileSystemsCommand } = require('@aws-sdk/client-efs');
+const { getAwsAccountConfigs } = require('../../../aws-account-config');
 
 const DEFAULT_REGION = 'us-east-1';
 const DEFAULT_CLOUDWATCH_REGION = 'us-east-1';
@@ -75,22 +76,6 @@ function normalizeRegionList(value, fallbackRegion = DEFAULT_REGION) {
   }
 
   return [fallback];
-}
-
-function normalizeAccountId(value, fallback = 'aws-default') {
-  return String(value || fallback)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, '-');
-}
-
-function normalizeUrl(value) {
-  const raw = String(value || '').trim();
-  if (!raw) {
-    return null;
-  }
-  const parsed = new URL(raw);
-  return parsed.toString().replace(/\/$/, '');
 }
 
 function isAwsManagedS3Endpoint(endpointUrl) {
@@ -216,101 +201,26 @@ const scheduler = new RequestScheduler({
   minIntervalMs: awsThrottle.minIntervalMs
 });
 
-function parseAwsAccountsFromJson(rawJson) {
-  let parsed;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch (error) {
-    throw new Error(`AWS_ACCOUNTS_JSON is not valid JSON: ${error.message || String(error)}`);
-  }
-
-  if (!Array.isArray(parsed)) {
-    throw new Error('AWS_ACCOUNTS_JSON must be a JSON array of account objects.');
-  }
-  return parsed;
-}
-
-function normalizeAwsAccountConfig(rawAccount, index = 0) {
-  if (!rawAccount || typeof rawAccount !== 'object') {
-    return null;
-  }
-
-  const accessKeyId = String(rawAccount.accessKeyId || rawAccount.accessKey || rawAccount.access_key || '').trim();
-  const secretAccessKey = String(
-    rawAccount.secretAccessKey || rawAccount.secretKey || rawAccount.secret_key || ''
-  ).trim();
-  if (!accessKeyId || !secretAccessKey) {
-    return null;
-  }
-
-  const accountId = normalizeAccountId(rawAccount.accountId || rawAccount.id || rawAccount.name, `aws-${index + 1}`);
-  const displayName = String(rawAccount.displayName || rawAccount.label || rawAccount.name || accountId).trim() || accountId;
-  const region = String(rawAccount.region || DEFAULT_REGION).trim() || DEFAULT_REGION;
-  const cloudWatchRegion = String(rawAccount.cloudWatchRegion || rawAccount.cloudwatchRegion || DEFAULT_CLOUDWATCH_REGION).trim() || DEFAULT_CLOUDWATCH_REGION;
-  const efsRegions = normalizeRegionList(rawAccount.efsRegions || rawAccount.efs_regions, region);
-
-  return {
-    accountId,
-    displayName,
-    accessKeyId,
-    secretAccessKey,
-    sessionToken: String(rawAccount.sessionToken || rawAccount.session_token || '').trim() || null,
-    region,
-    cloudWatchRegion,
-    efsRegions,
-    s3Endpoint: normalizeUrl(rawAccount.s3Endpoint || rawAccount.endpoint || rawAccount.s3_endpoint),
-    forcePathStyle: parseBoolean(rawAccount.forcePathStyle ?? rawAccount.s3ForcePathStyle, false),
-    requestMetricsEnabledByDefault: parseBoolean(
-      rawAccount.requestMetricsEnabledByDefault ?? rawAccount.enableRequestMetrics,
-      false
-    )
-  };
-}
-
 function getAwsAccountConfigsFromEnv() {
-  const rawJson = String(process.env.AWS_ACCOUNTS_JSON || '').trim();
-  let accounts = [];
-
-  if (rawJson) {
-    accounts = parseAwsAccountsFromJson(rawJson)
-      .map((row, index) => normalizeAwsAccountConfig(row, index))
-      .filter(Boolean);
-  }
-
-  if (!accounts.length) {
-    const fallbackAccessKey = String(process.env.AWS_DEFAULT_ACCESS_KEY_ID || '').trim();
-    const fallbackSecretKey = String(process.env.AWS_DEFAULT_SECRET_ACCESS_KEY || '').trim();
-    if (fallbackAccessKey && fallbackSecretKey) {
-      const fallback = normalizeAwsAccountConfig(
-        {
-          accountId: process.env.AWS_DEFAULT_ACCOUNT_ID || 'aws-default',
-          displayName: process.env.AWS_DEFAULT_ACCOUNT_LABEL || 'AWS',
-          accessKeyId: fallbackAccessKey,
-          secretAccessKey: fallbackSecretKey,
-          sessionToken: process.env.AWS_DEFAULT_SESSION_TOKEN || '',
-          region: process.env.AWS_DEFAULT_REGION || DEFAULT_REGION,
-          cloudWatchRegion: process.env.AWS_DEFAULT_CLOUDWATCH_REGION || DEFAULT_CLOUDWATCH_REGION,
-          efsRegions: process.env.AWS_DEFAULT_EFS_REGIONS || process.env.AWS_DEFAULT_REGION || DEFAULT_REGION,
-          s3Endpoint: process.env.AWS_DEFAULT_S3_ENDPOINT || '',
-          forcePathStyle: process.env.AWS_DEFAULT_FORCE_PATH_STYLE || false,
-          requestMetricsEnabledByDefault: process.env.AWS_DEFAULT_REQUEST_METRICS_ENABLED || false
-        },
-        0
-      );
-      if (fallback) {
-        accounts = [fallback];
-      }
-    }
-  }
-
-  const deduped = new Map();
-  for (const account of accounts) {
-    if (!deduped.has(account.accountId)) {
-      deduped.set(account.accountId, account);
-    }
-  }
-
-  return Array.from(deduped.values());
+  return getAwsAccountConfigs({
+    includeEnvFallback: true,
+    includeProfileOnly: false
+  }).map((account) => ({
+    accountId: String(account.accountId || '').trim() || 'aws-default',
+    displayName: String(account.displayName || account.vendorName || account.accountId || 'AWS').trim() || 'AWS',
+    accessKeyId: String(account.accessKeyId || '').trim(),
+    secretAccessKey: String(account.secretAccessKey || '').trim(),
+    sessionToken: String(account.sessionToken || '').trim() || null,
+    region: normalizeBucketRegion(account.region || DEFAULT_REGION, DEFAULT_REGION),
+    cloudWatchRegion: normalizeBucketRegion(
+      account.cloudWatchRegion || account.region || DEFAULT_CLOUDWATCH_REGION,
+      DEFAULT_CLOUDWATCH_REGION
+    ),
+    efsRegions: normalizeRegionList(account.efsRegions, account.region || DEFAULT_REGION),
+    s3Endpoint: String(account.s3Endpoint || '').trim() || null,
+    forcePathStyle: parseBoolean(account.forcePathStyle, false),
+    requestMetricsEnabledByDefault: parseBoolean(account.requestMetricsEnabledByDefault, false)
+  }));
 }
 
 function toPublicAwsAccount(account) {

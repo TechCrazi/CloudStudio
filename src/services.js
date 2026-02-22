@@ -43,17 +43,33 @@ function createManagedServices(options = {}) {
       path.join(projectRoot, 'src', 'modules', 'tag')
   );
 
+  const grafanaCloudDir = path.resolve(
+    options.grafanaCloudDir ||
+      process.env.CLOUDSTUDIO_GRAFANA_CLOUD_DIR ||
+      path.join(projectRoot, 'src', 'modules', 'grafana-cloud')
+  );
+
+  const firewallDir = path.resolve(
+    options.firewallDir ||
+      process.env.CLOUDSTUDIO_FIREWALL_DIR ||
+      path.join(projectRoot, 'src', 'modules', 'firewall')
+  );
+
   const storageModule = require(path.join(storageDir, 'src', 'server.js'));
   const priceModule = require(path.join(priceDir, 'server.js'));
   const ipAddressModule = require(path.join(ipAddressDir, 'server.js'));
   const billingModule = require(path.join(billingDir, 'server.js'));
   const tagModule = require(path.join(tagDir, 'server.js'));
+  const grafanaCloudModule = require(path.join(grafanaCloudDir, 'server.js'));
+  const firewallModule = require(path.join(firewallDir, 'server.js'));
 
   const storageApp = resolveServiceApp(storageModule);
   const priceApp = resolveServiceApp(priceModule);
   const ipAddressApp = resolveServiceApp(ipAddressModule);
   const billingApp = resolveServiceApp(billingModule);
   const tagApp = resolveServiceApp(tagModule);
+  const grafanaCloudApp = resolveServiceApp(grafanaCloudModule);
+  const firewallApp = resolveServiceApp(firewallModule);
 
   if (!storageApp) {
     throw new Error(`CloudStorageStudio app export not found at ${path.join(storageDir, 'src', 'server.js')}`);
@@ -69,6 +85,12 @@ function createManagedServices(options = {}) {
   }
   if (!tagApp) {
     throw new Error(`Tag app export not found at ${path.join(tagDir, 'server.js')}`);
+  }
+  if (!grafanaCloudApp) {
+    throw new Error(`Grafana-Cloud app export not found at ${path.join(grafanaCloudDir, 'server.js')}`);
+  }
+  if (!firewallApp) {
+    throw new Error(`Firewall app export not found at ${path.join(firewallDir, 'server.js')}`);
   }
 
   const services = {
@@ -141,6 +163,34 @@ function createManagedServices(options = {}) {
         typeof tagModule.startBackgroundWorkers === 'function'
           ? tagModule.startBackgroundWorkers
           : null
+    },
+    grafanaCloud: {
+      name: 'Grafana-Cloud',
+      mountPath: '/apps/grafana-cloud',
+      healthPath: '/api/health',
+      app: grafanaCloudApp,
+      running: false,
+      external: false,
+      startedAt: null,
+      lastError: null,
+      startBackgroundWorkers:
+        typeof grafanaCloudModule.startBackgroundWorkers === 'function'
+          ? grafanaCloudModule.startBackgroundWorkers
+          : null
+    },
+    firewall: {
+      name: 'Firewall',
+      mountPath: '/apps/firewall',
+      healthPath: '/api/health',
+      app: firewallApp,
+      running: false,
+      external: false,
+      startedAt: null,
+      lastError: null,
+      startBackgroundWorkers:
+        typeof firewallModule.startBackgroundWorkers === 'function'
+          ? firewallModule.startBackgroundWorkers
+          : null
     }
   };
 
@@ -157,6 +207,8 @@ function createManagedServices(options = {}) {
     rootApp.use(services.ipAddress.mountPath, services.ipAddress.app);
     rootApp.use(services.billing.mountPath, services.billing.app);
     rootApp.use(services.tag.mountPath, services.tag.app);
+    rootApp.use(services.grafanaCloud.mountPath, services.grafanaCloud.app);
+    rootApp.use(services.firewall.mountPath, services.firewall.app);
     mounted = true;
   }
 
@@ -210,7 +262,9 @@ function createManagedServices(options = {}) {
       price: mapStatus(services.price),
       ipAddress: mapStatus(services.ipAddress),
       billing: mapStatus(services.billing),
-      tag: mapStatus(services.tag)
+      tag: mapStatus(services.tag),
+      grafanaCloud: mapStatus(services.grafanaCloud),
+      firewall: mapStatus(services.firewall)
     };
   }
 

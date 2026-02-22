@@ -51,16 +51,33 @@ const ui = {
   awsInventoryView: document.getElementById('awsInventoryView'),
   awsSecurityView: document.getElementById('awsSecurityView'),
   awsConfigInfo: document.getElementById('awsConfigInfo'),
+  awsAccountList: document.getElementById('awsAccountList'),
+  saveAwsAccountsBtn: document.getElementById('saveAwsAccountsBtn'),
+  awsScopeHint: document.getElementById('awsScopeHint'),
   awsTotalStorage: document.getElementById('awsTotalStorage'),
+  awsTotalStorage30d: document.getElementById('awsTotalStorage30d'),
+  awsStorageCost24h: document.getElementById('awsStorageCost24h'),
+  awsStorageCost30d: document.getElementById('awsStorageCost30d'),
   awsTotalObjects: document.getElementById('awsTotalObjects'),
+  awsTotalObjects30d: document.getElementById('awsTotalObjects30d'),
   awsTotalEfsCount: document.getElementById('awsTotalEfsCount'),
+  awsTotalEfsCount30d: document.getElementById('awsTotalEfsCount30d'),
   awsTotalEfsStorage: document.getElementById('awsTotalEfsStorage'),
+  awsTotalEfsStorage30d: document.getElementById('awsTotalEfsStorage30d'),
+  awsEfsCost24h: document.getElementById('awsEfsCost24h'),
+  awsEfsCost30d: document.getElementById('awsEfsCost30d'),
   awsTotalEgress24h: document.getElementById('awsTotalEgress24h'),
+  awsEgressCost24h: document.getElementById('awsEgressCost24h'),
   awsTotalIngress24h: document.getElementById('awsTotalIngress24h'),
+  awsIngressCost24h: document.getElementById('awsIngressCost24h'),
   awsTotalTransactions24h: document.getElementById('awsTotalTransactions24h'),
+  awsTransactionsCost24h: document.getElementById('awsTransactionsCost24h'),
   awsTotalEgress30d: document.getElementById('awsTotalEgress30d'),
+  awsEgressCost30d: document.getElementById('awsEgressCost30d'),
   awsTotalIngress30d: document.getElementById('awsTotalIngress30d'),
+  awsIngressCost30d: document.getElementById('awsIngressCost30d'),
   awsTotalTransactions30d: document.getElementById('awsTotalTransactions30d'),
+  awsTransactionsCost30d: document.getElementById('awsTransactionsCost30d'),
   awsEstimatedCost24h: document.getElementById('awsEstimatedCost24h'),
   awsEstimatedCost30d: document.getElementById('awsEstimatedCost30d'),
   awsTotalsCoverage: document.getElementById('awsTotalsCoverage'),
@@ -71,11 +88,38 @@ const ui = {
   awsAccountsBody: document.getElementById('awsAccountsBody'),
   awsSecurityAccountsBody: document.getElementById('awsSecurityAccountsBody'),
   gcpLoadBtn: document.getElementById('gcpLoadBtn'),
+  gcpTotalStorage24h: document.getElementById('gcpTotalStorage24h'),
+  gcpTotalStorage30d: document.getElementById('gcpTotalStorage30d'),
+  gcpStorageCost24h: document.getElementById('gcpStorageCost24h'),
+  gcpStorageCost30d: document.getElementById('gcpStorageCost30d'),
+  gcpTotalEgress24h: document.getElementById('gcpTotalEgress24h'),
+  gcpTotalEgress30d: document.getElementById('gcpTotalEgress30d'),
+  gcpEgressCost24h: document.getElementById('gcpEgressCost24h'),
+  gcpEgressCost30d: document.getElementById('gcpEgressCost30d'),
+  gcpTotalIngress24h: document.getElementById('gcpTotalIngress24h'),
+  gcpTotalIngress30d: document.getElementById('gcpTotalIngress30d'),
+  gcpIngressCost24h: document.getElementById('gcpIngressCost24h'),
+  gcpIngressCost30d: document.getElementById('gcpIngressCost30d'),
+  gcpTotalTransactions24h: document.getElementById('gcpTotalTransactions24h'),
+  gcpTotalTransactions30d: document.getElementById('gcpTotalTransactions30d'),
+  gcpTransactionsCost24h: document.getElementById('gcpTransactionsCost24h'),
+  gcpTransactionsCost30d: document.getElementById('gcpTransactionsCost30d'),
+  gcpEstimatedCost24h: document.getElementById('gcpEstimatedCost24h'),
+  gcpEstimatedCost30d: document.getElementById('gcpEstimatedCost30d'),
+  gcpTotalsCoverage: document.getElementById('gcpTotalsCoverage'),
+  gcpPricingAssumptions: document.getElementById('gcpPricingAssumptions'),
   wasabiLoadBtn: document.getElementById('wasabiLoadBtn'),
   wasabiExportAllBtn: document.getElementById('wasabiExportAllBtn'),
   wasabiConfigInfo: document.getElementById('wasabiConfigInfo'),
+  wasabiAccountList: document.getElementById('wasabiAccountList'),
+  saveWasabiAccountsBtn: document.getElementById('saveWasabiAccountsBtn'),
+  wasabiScopeHint: document.getElementById('wasabiScopeHint'),
   wasabiTotalStorage: document.getElementById('wasabiTotalStorage'),
+  wasabiTotalStorage30d: document.getElementById('wasabiTotalStorage30d'),
+  wasabiStorageCost24h: document.getElementById('wasabiStorageCost24h'),
+  wasabiStorageCost30d: document.getElementById('wasabiStorageCost30d'),
   wasabiTotalObjects: document.getElementById('wasabiTotalObjects'),
+  wasabiTotalObjects30d: document.getElementById('wasabiTotalObjects30d'),
   wasabiEstimatedCost24h: document.getElementById('wasabiEstimatedCost24h'),
   wasabiEstimatedCost30d: document.getElementById('wasabiEstimatedCost30d'),
   wasabiTotalsCoverage: document.getElementById('wasabiTotalsCoverage'),
@@ -86,10 +130,15 @@ const ui = {
   vsaxRefreshGroupsBtn: document.getElementById('vsaxRefreshGroupsBtn'),
   vsaxLoadBtn: document.getElementById('vsaxLoadBtn'),
   saveVsaxGroupsBtn: document.getElementById('saveVsaxGroupsBtn'),
+  vsaxGroupSearchInput: document.getElementById('vsaxGroupSearchInput'),
   vsaxGroupList: document.getElementById('vsaxGroupList'),
   vsaxConfigInfo: document.getElementById('vsaxConfigInfo'),
   vsaxTotalAllocated: document.getElementById('vsaxTotalAllocated'),
+  vsaxTotalAllocated30d: document.getElementById('vsaxTotalAllocated30d'),
   vsaxTotalUsed: document.getElementById('vsaxTotalUsed'),
+  vsaxTotalUsed30d: document.getElementById('vsaxTotalUsed30d'),
+  vsaxStorageCost24h: document.getElementById('vsaxStorageCost24h'),
+  vsaxStorageCost30d: document.getElementById('vsaxStorageCost30d'),
   vsaxEstimatedCost24h: document.getElementById('vsaxEstimatedCost24h'),
   vsaxEstimatedCost30d: document.getElementById('vsaxEstimatedCost30d'),
   vsaxTotalsCoverage: document.getElementById('vsaxTotalsCoverage'),
@@ -137,8 +186,10 @@ const ui = {
 };
 
 const state = {
+  storageUserKey: '',
   themeMode: 'gray',
   activeProvider: STORAGE_EMBEDDED ? 'unified' : 'azure',
+  allowedProviders: new Set(['unified', 'azure', 'aws', 'gcp', 'wasabi', 'vsax', 'other']),
   expandedUnifiedProviderIds: new Set(),
   activeAzureScope: 'all-selected',
   activeAzureView: 'inventory',
@@ -163,6 +214,7 @@ const state = {
   pullAllJobId: '',
   pullAllPollTimer: null,
   awsAccounts: [],
+  awsSelectedAccountIds: [],
   awsBucketsByAccount: {},
   awsEfsByAccount: {},
   awsBucketLoadErrorsByAccount: {},
@@ -176,6 +228,7 @@ const state = {
   awsSyncAllActive: false,
   awsDeepSyncAllActive: false,
   wasabiAccounts: [],
+  wasabiSelectedAccountIds: [],
   wasabiBucketsByAccount: {},
   wasabiBucketLoadErrorsByAccount: {},
   wasabiLoadingBucketsByAccount: {},
@@ -191,6 +244,7 @@ const state = {
   vsaxSyncAllActive: false,
   vsaxAvailableGroups: [],
   vsaxSelectedGroupNames: [],
+  vsaxGroupSearchText: '',
   logLines: [],
   activityDrawerWidth: 460,
   accountSort: {
@@ -219,7 +273,8 @@ const ACTIVITY_DRAWER_WIDTH_DEFAULT = 460;
 const ACTIVITY_DRAWER_WIDTH_MIN = 340;
 const ACTIVITY_DRAWER_WIDTH_MAX = 1400;
 const ACTIVITY_DRAWER_WIDTH_STEP = 120;
-const ALLOWED_PROVIDERS = new Set(['unified', 'azure', 'aws', 'gcp', 'wasabi', 'vsax', 'other']);
+const STORAGE_PROVIDER_ORDER = ['unified', 'azure', 'aws', 'gcp', 'wasabi', 'vsax', 'other'];
+const ALLOWED_PROVIDERS = new Set(STORAGE_PROVIDER_ORDER);
 const ALLOWED_AZURE_VIEWS = new Set(['inventory', 'security']);
 const ALLOWED_AWS_VIEWS = new Set(['inventory', 'security']);
 const ALLOWED_THEME_MODES = new Set(['gray', 'dark', 'ellkay']);
@@ -245,6 +300,59 @@ function writeStorageValue(key, value) {
     // Ignore storage errors in private mode / disabled storage.
   }
 }
+
+function normalizeStorageUserKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function getScopedStorageStateKey(baseKey) {
+  const key = String(baseKey || '').trim();
+  if (!key) {
+    return '';
+  }
+  const userKey = normalizeStorageUserKey(state.storageUserKey);
+  if (!userKey) {
+    return key;
+  }
+  return `${key}.${userKey}`;
+}
+
+function readScopedStorageValue(baseKey, options = {}) {
+  const fallbackToLegacy = options.fallbackToLegacy === true;
+  const scopedKey = getScopedStorageStateKey(baseKey);
+  if (scopedKey) {
+    const scopedValue = readStorageValue(scopedKey);
+    if (scopedValue !== null && scopedValue !== undefined) {
+      return scopedValue;
+    }
+  }
+  if (fallbackToLegacy && scopedKey !== baseKey) {
+    return readStorageValue(baseKey);
+  }
+  return null;
+}
+
+function writeScopedStorageValue(baseKey, value) {
+  const scopedKey = getScopedStorageStateKey(baseKey);
+  writeStorageValue(scopedKey || baseKey, value);
+}
+
+function applyStorageUserScope(userKey, options = {}) {
+  const normalized = normalizeStorageUserKey(userKey);
+  const changed = normalized !== state.storageUserKey;
+  state.storageUserKey = normalized;
+
+  if (!changed || options.reloadState === false) {
+    return;
+  }
+
+  loadThemeMode();
+  loadActivityDrawerWidth();
+  loadNavigationState();
+}
+
 const DEFAULT_PRICING_ASSUMPTIONS = {
   currency: 'USD',
   regionLabel: 'US East',
@@ -354,7 +462,7 @@ function applyActivityDrawerWidth(width, persist = true) {
   ui.activityDrawer.style.setProperty('--activity-drawer-width', `${next}px`);
 
   if (persist) {
-    localStorage.setItem(ACTIVITY_DRAWER_WIDTH_KEY, String(next));
+    writeScopedStorageValue(ACTIVITY_DRAWER_WIDTH_KEY, String(next));
   }
 }
 
@@ -366,7 +474,7 @@ function loadActivityDrawerWidth() {
     return;
   }
 
-  const raw = localStorage.getItem(ACTIVITY_DRAWER_WIDTH_KEY);
+  const raw = readScopedStorageValue(ACTIVITY_DRAWER_WIDTH_KEY);
   const parsed = Number(raw);
   if (Number.isFinite(parsed) && parsed >= ACTIVITY_DRAWER_WIDTH_MIN) {
     state.activityDrawerWidth = parsed;
@@ -389,7 +497,7 @@ function applyThemeMode(mode, persist = true) {
   }
 
   if (persist) {
-    localStorage.setItem(THEME_MODE_KEY, nextMode);
+    writeScopedStorageValue(THEME_MODE_KEY, nextMode);
   }
 }
 
@@ -399,16 +507,16 @@ function loadThemeMode() {
     return;
   }
 
-  const saved = localStorage.getItem(THEME_MODE_KEY);
+  const saved = readScopedStorageValue(THEME_MODE_KEY);
   const normalized = ALLOWED_THEME_MODES.has(saved) ? saved : 'gray';
   applyThemeMode(normalized, false);
 }
 
 function loadNavigationState() {
   if (STORAGE_EMBEDDED) {
-    const embeddedProvider = readStorageValue(EMBEDDED_ACTIVE_PROVIDER_KEY);
-    const embeddedAzureView = readStorageValue(EMBEDDED_ACTIVE_AZURE_VIEW_KEY);
-    const embeddedAwsView = readStorageValue(EMBEDDED_ACTIVE_AWS_VIEW_KEY);
+    const embeddedProvider = readScopedStorageValue(EMBEDDED_ACTIVE_PROVIDER_KEY);
+    const embeddedAzureView = readScopedStorageValue(EMBEDDED_ACTIVE_AZURE_VIEW_KEY);
+    const embeddedAwsView = readScopedStorageValue(EMBEDDED_ACTIVE_AWS_VIEW_KEY);
 
     state.activeProvider = ALLOWED_PROVIDERS.has(embeddedProvider) ? embeddedProvider : 'unified';
     state.activeAzureView = ALLOWED_AZURE_VIEWS.has(embeddedAzureView) ? embeddedAzureView : 'inventory';
@@ -416,9 +524,9 @@ function loadNavigationState() {
     return;
   }
 
-  const savedProvider = readStorageValue(ACTIVE_PROVIDER_KEY);
-  const savedAzureView = readStorageValue(ACTIVE_AZURE_VIEW_KEY);
-  const savedAwsView = readStorageValue(ACTIVE_AWS_VIEW_KEY);
+  const savedProvider = readScopedStorageValue(ACTIVE_PROVIDER_KEY);
+  const savedAzureView = readScopedStorageValue(ACTIVE_AZURE_VIEW_KEY);
+  const savedAwsView = readScopedStorageValue(ACTIVE_AWS_VIEW_KEY);
 
   if (ALLOWED_PROVIDERS.has(savedProvider)) {
     state.activeProvider = savedProvider;
@@ -428,6 +536,41 @@ function loadNavigationState() {
   }
   if (ALLOWED_AWS_VIEWS.has(savedAwsView)) {
     state.activeAwsView = savedAwsView;
+  }
+}
+
+function normalizeAllowedProviderSet(rawProviders) {
+  const next = new Set();
+  if (Array.isArray(rawProviders)) {
+    for (const rawProvider of rawProviders) {
+      const provider = String(rawProvider || '').trim().toLowerCase();
+      if (ALLOWED_PROVIDERS.has(provider)) {
+        next.add(provider);
+      }
+    }
+  }
+  if (!next.size) {
+    for (const provider of STORAGE_PROVIDER_ORDER) {
+      next.add(provider);
+    }
+  }
+  return next;
+}
+
+function getFirstAllowedProvider() {
+  for (const provider of STORAGE_PROVIDER_ORDER) {
+    if (state.allowedProviders.has(provider)) {
+      return provider;
+    }
+  }
+  return 'unified';
+}
+
+function applyAllowedProvidersFromConfig() {
+  state.allowedProviders = normalizeAllowedProviderSet(state.config?.allowedProviders);
+  if (!state.allowedProviders.has(state.activeProvider)) {
+    state.activeProvider = getFirstAllowedProvider();
+    writeScopedStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_PROVIDER_KEY : ACTIVE_PROVIDER_KEY, state.activeProvider);
   }
 }
 
@@ -765,7 +908,65 @@ function selectedSubscriptionIdsFromUiOrState() {
   return ids.length ? ids : selectedSubscriptionIdsFromState();
 }
 
+function allAwsAccountIdsFromState() {
+  return state.awsAccounts
+    .map((account) => String(account?.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function selectedAwsAccountIdsFromState() {
+  const ids = state.awsSelectedAccountIds
+    .map((id) => String(id || '').trim().toLowerCase())
+    .filter(Boolean);
+  return ids.length ? ids : allAwsAccountIdsFromState();
+}
+
+function selectedAwsAccountIdsFromUiOrState() {
+  const ids = selectedAwsAccountIds();
+  return ids.length ? ids : selectedAwsAccountIdsFromState();
+}
+
+function getScopedAwsAccounts() {
+  const selectedSet = new Set(selectedAwsAccountIdsFromUiOrState());
+  const accounts = Array.isArray(state.awsAccounts) ? state.awsAccounts : [];
+  if (!selectedSet.size) {
+    return accounts;
+  }
+  return accounts.filter((account) => selectedSet.has(String(account?.account_id || '').trim().toLowerCase()));
+}
+
+function allWasabiAccountIdsFromState() {
+  return state.wasabiAccounts
+    .map((account) => String(account?.account_id || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function selectedWasabiAccountIdsFromState() {
+  const ids = state.wasabiSelectedAccountIds
+    .map((id) => String(id || '').trim().toLowerCase())
+    .filter(Boolean);
+  return ids.length ? ids : allWasabiAccountIdsFromState();
+}
+
+function selectedWasabiAccountIdsFromUiOrState() {
+  const ids = selectedWasabiAccountIds();
+  return ids.length ? ids : selectedWasabiAccountIdsFromState();
+}
+
+function getScopedWasabiAccounts() {
+  const selectedSet = new Set(selectedWasabiAccountIdsFromUiOrState());
+  const accounts = Array.isArray(state.wasabiAccounts) ? state.wasabiAccounts : [];
+  if (!selectedSet.size) {
+    return accounts;
+  }
+  return accounts.filter((account) => selectedSet.has(String(account?.account_id || '').trim().toLowerCase()));
+}
+
 function renderProviderPanels() {
+  if (!state.allowedProviders.has(state.activeProvider)) {
+    state.activeProvider = getFirstAllowedProvider();
+  }
+
   const panelMap = {
     unified: ui.providerPanelUnified,
     azure: ui.providerPanelAzure,
@@ -780,14 +981,20 @@ function renderProviderPanels() {
     if (!panel) {
       continue;
     }
-    panel.classList.toggle('provider-panel-active', provider === state.activeProvider);
+    const allowed = state.allowedProviders.has(provider);
+    panel.hidden = !allowed;
+    panel.style.display = allowed ? '' : 'none';
+    panel.classList.toggle('provider-panel-active', allowed && provider === state.activeProvider);
   }
 
   for (const tab of ui.providerTabs) {
     const provider = tab.getAttribute('data-provider');
+    const allowed = state.allowedProviders.has(provider);
     const isActive = provider === state.activeProvider;
-    tab.classList.toggle('active', isActive);
-    tab.setAttribute('aria-selected', String(isActive));
+    tab.hidden = !allowed;
+    tab.style.display = allowed ? '' : 'none';
+    tab.classList.toggle('active', allowed && isActive);
+    tab.setAttribute('aria-selected', String(allowed && isActive));
   }
 
   syncPullButtonsDisabledState();
@@ -795,17 +1002,18 @@ function renderProviderPanels() {
   syncWasabiButtonsDisabledState();
   syncVsaxButtonsDisabledState();
   renderAwsContentViews();
+  renderGcpTotals();
   renderUnifiedStats();
 }
 
 function setActiveProvider(provider, options = {}) {
   const persist = options.persist !== false;
-  if (!ALLOWED_PROVIDERS.has(provider)) {
+  if (!ALLOWED_PROVIDERS.has(provider) || !state.allowedProviders.has(provider)) {
     return;
   }
   state.activeProvider = provider;
   if (persist) {
-    writeStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_PROVIDER_KEY : ACTIVE_PROVIDER_KEY, provider);
+    writeScopedStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_PROVIDER_KEY : ACTIVE_PROVIDER_KEY, provider);
   }
   renderProviderPanels();
   if (provider === 'aws' && !state.awsAccounts.length) {
@@ -891,6 +1099,24 @@ function selectedVsaxGroupNames() {
   }
   return Array.from(ui.vsaxGroupList.querySelectorAll('input[type="checkbox"]:checked'))
     .map((el) => String(el.value || '').trim())
+    .filter(Boolean);
+}
+
+function selectedAwsAccountIds() {
+  if (!ui.awsAccountList) {
+    return [];
+  }
+  return Array.from(ui.awsAccountList.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((el) => String(el.value || '').trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function selectedWasabiAccountIds() {
+  if (!ui.wasabiAccountList) {
+    return [];
+  }
+  return Array.from(ui.wasabiAccountList.querySelectorAll('input[type="checkbox"]:checked'))
+    .map((el) => String(el.value || '').trim().toLowerCase())
     .filter(Boolean);
 }
 
@@ -1238,6 +1464,10 @@ function syncAwsButtonsDisabledState() {
   if (ui.awsExportAllBtn) {
     ui.awsExportAllBtn.disabled = disabled;
   }
+  if (ui.saveAwsAccountsBtn) {
+    const hasAccounts = Array.isArray(state.awsAccounts) && state.awsAccounts.length > 0;
+    ui.saveAwsAccountsBtn.disabled = !configured || !hasAccounts || disabled;
+  }
 }
 
 function syncWasabiButtonsDisabledState() {
@@ -1250,6 +1480,10 @@ function syncWasabiButtonsDisabledState() {
   ui.wasabiLoadBtn.disabled = disabled;
   if (ui.wasabiExportAllBtn) {
     ui.wasabiExportAllBtn.disabled = disabled;
+  }
+  if (ui.saveWasabiAccountsBtn) {
+    const hasAccounts = Array.isArray(state.wasabiAccounts) && state.wasabiAccounts.length > 0;
+    ui.saveWasabiAccountsBtn.disabled = !configured || !hasAccounts || disabled;
   }
 }
 
@@ -1314,12 +1548,14 @@ function renderVsaxGroupSelection() {
     ui.vsaxGroupList.innerHTML = `<p class="muted">${escapeHtml(
       configError || 'Configure VSAX_BASE_URL, VSAX_API_TOKEN_ID, and VSAX_API_TOKEN_SECRET to load VSAx groups.'
     )}</p>`;
+    applyVsaxGroupSelectionFilter();
     syncVsaxButtonsDisabledState();
     return;
   }
 
   if (!available.length) {
     ui.vsaxGroupList.innerHTML = '<p class="muted">No VSAx groups found yet. Click "Load groups".</p>';
+    applyVsaxGroupSelectionFilter();
     syncVsaxButtonsDisabledState();
     return;
   }
@@ -1341,7 +1577,130 @@ function renderVsaxGroupSelection() {
     ui.vsaxGroupList.appendChild(label);
   }
 
+  applyVsaxGroupSelectionFilter();
   syncVsaxButtonsDisabledState();
+}
+
+function applyVsaxGroupSelectionFilter() {
+  if (!ui.vsaxGroupList) {
+    return;
+  }
+  const query = normalizeSearch(state.vsaxGroupSearchText || ui.vsaxGroupSearchInput?.value || '');
+  const labels = Array.from(ui.vsaxGroupList.querySelectorAll('label'));
+  labels.forEach((label) => {
+    const text = normalizeSearch(label.textContent || '');
+    const visible = !query || text.includes(query);
+    label.hidden = !visible;
+    label.style.display = visible ? '' : 'none';
+  });
+}
+
+function renderAwsAccountSelection() {
+  if (!ui.awsAccountList) {
+    return;
+  }
+
+  const configured = Boolean(state.config?.aws?.configured);
+  const configError = state.config?.aws?.configError || '';
+  const accounts = Array.isArray(state.awsAccounts) ? state.awsAccounts : [];
+  const selectedSet = new Set(selectedAwsAccountIdsFromUiOrState());
+
+  if (!configured) {
+    ui.awsAccountList.innerHTML = `<p class="muted">${escapeHtml(
+      configError || 'Configure AWS vendor credentials in Admin -> Vendor onboarding (or AWS_DEFAULT_* vars as fallback) to load AWS accounts.'
+    )}</p>`;
+    if (ui.awsScopeHint) {
+      ui.awsScopeHint.textContent = '';
+    }
+    syncAwsButtonsDisabledState();
+    return;
+  }
+
+  if (!accounts.length) {
+    ui.awsAccountList.innerHTML = '<p class="muted">No AWS accounts found yet. Click "Fetch AWS data".</p>';
+    if (ui.awsScopeHint) {
+      ui.awsScopeHint.textContent = '0 account(s) selected.';
+    }
+    syncAwsButtonsDisabledState();
+    return;
+  }
+
+  ui.awsAccountList.innerHTML = '';
+  for (const account of accounts) {
+    const accountId = String(account?.account_id || '').trim().toLowerCase();
+    if (!accountId) {
+      continue;
+    }
+    const checked = selectedSet.size
+      ? selectedSet.has(accountId)
+      : Number(account?.is_selected) === 1 || !selectedAwsAccountIdsFromState().length;
+    const label = document.createElement('label');
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHtml(accountId)}" ${checked ? 'checked' : ''} />
+      <span>${escapeHtml(account?.display_name || accountId)}</span>
+    `;
+    ui.awsAccountList.appendChild(label);
+  }
+
+  const selectedCount = selectedSet.size || accounts.length;
+  if (ui.awsScopeHint) {
+    ui.awsScopeHint.textContent = `${selectedCount}/${accounts.length} selected account(s).`;
+  }
+  syncAwsButtonsDisabledState();
+}
+
+function renderWasabiAccountSelection() {
+  if (!ui.wasabiAccountList) {
+    return;
+  }
+
+  const configured = Boolean(state.config?.wasabi?.configured);
+  const configError = state.config?.wasabi?.configError || '';
+  const accounts = Array.isArray(state.wasabiAccounts) ? state.wasabiAccounts : [];
+  const selectedSet = new Set(selectedWasabiAccountIdsFromUiOrState());
+
+  if (!configured) {
+    ui.wasabiAccountList.innerHTML = `<p class="muted">${escapeHtml(
+      configError || 'Configure WASABI_ACCOUNTS_JSON (or WASABI_ACCESS_KEY/WASABI_SECRET_KEY) to load Wasabi accounts.'
+    )}</p>`;
+    if (ui.wasabiScopeHint) {
+      ui.wasabiScopeHint.textContent = '';
+    }
+    syncWasabiButtonsDisabledState();
+    return;
+  }
+
+  if (!accounts.length) {
+    ui.wasabiAccountList.innerHTML = '<p class="muted">No Wasabi accounts found yet. Click "Fetch Wasabi data".</p>';
+    if (ui.wasabiScopeHint) {
+      ui.wasabiScopeHint.textContent = '0 account(s) selected.';
+    }
+    syncWasabiButtonsDisabledState();
+    return;
+  }
+
+  ui.wasabiAccountList.innerHTML = '';
+  for (const account of accounts) {
+    const accountId = String(account?.account_id || '').trim().toLowerCase();
+    if (!accountId) {
+      continue;
+    }
+    const checked = selectedSet.size
+      ? selectedSet.has(accountId)
+      : Number(account?.is_selected) === 1 || !selectedWasabiAccountIdsFromState().length;
+    const label = document.createElement('label');
+    label.innerHTML = `
+      <input type="checkbox" value="${escapeHtml(accountId)}" ${checked ? 'checked' : ''} />
+      <span>${escapeHtml(account?.display_name || accountId)}</span>
+    `;
+    ui.wasabiAccountList.appendChild(label);
+  }
+
+  const selectedCount = selectedSet.size || accounts.length;
+  if (ui.wasabiScopeHint) {
+    ui.wasabiScopeHint.textContent = `${selectedCount}/${accounts.length} selected account(s).`;
+  }
+  syncWasabiButtonsDisabledState();
 }
 
 function renderAzureContentViews() {
@@ -1368,7 +1727,7 @@ function setActiveAzureView(view, options = {}) {
   }
   state.activeAzureView = view;
   if (persist) {
-    writeStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_AZURE_VIEW_KEY : ACTIVE_AZURE_VIEW_KEY, view);
+    writeScopedStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_AZURE_VIEW_KEY : ACTIVE_AZURE_VIEW_KEY, view);
   }
   renderAzureContentViews();
   if (view === 'security') {
@@ -1401,7 +1760,7 @@ function setActiveAwsView(view, options = {}) {
   }
   state.activeAwsView = view;
   if (persist) {
-    writeStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_AWS_VIEW_KEY : ACTIVE_AWS_VIEW_KEY, view);
+    writeScopedStorageValue(STORAGE_EMBEDDED ? EMBEDDED_ACTIVE_AWS_VIEW_KEY : ACTIVE_AWS_VIEW_KEY, view);
   }
   renderAwsContentViews();
   if (view === 'security') {
@@ -1903,7 +2262,7 @@ function buildUnifiedAzureBreakdownRows(pricing) {
 }
 
 function buildUnifiedWasabiBreakdownRows(pricing) {
-  const accounts = Array.isArray(state.wasabiAccounts) ? [...state.wasabiAccounts] : [];
+  const accounts = [...getScopedWasabiAccounts()];
   accounts.sort((left, right) =>
     compareInventorySortValues(left?.display_name || left?.account_id || '', right?.display_name || right?.account_id || '')
   );
@@ -1956,7 +2315,7 @@ function buildUnifiedVsaxBreakdownRows(pricing) {
 }
 
 function buildUnifiedAwsBreakdownRows(pricing) {
-  const accounts = Array.isArray(state.awsAccounts) ? [...state.awsAccounts] : [];
+  const accounts = [...getScopedAwsAccounts()];
   accounts.sort((left, right) =>
     compareInventorySortValues(left?.display_name || left?.account_id || '', right?.display_name || right?.account_id || '')
   );
@@ -2023,8 +2382,8 @@ function renderUnifiedStats() {
   }
 
   const azureStats = computeAzureScopeStats(getScopedAccounts(), getPricingAssumptions());
-  const awsStats = computeAwsProviderStats(state.awsAccounts, getAwsPricingAssumptions());
-  const wasabiStats = computeWasabiProviderStats(state.wasabiAccounts, getWasabiPricingAssumptions());
+  const awsStats = computeAwsProviderStats(getScopedAwsAccounts(), getAwsPricingAssumptions());
+  const wasabiStats = computeWasabiProviderStats(getScopedWasabiAccounts(), getWasabiPricingAssumptions());
   const vsaxStats = computeVsaxProviderStats(state.vsaxGroups, getVsaxPricingAssumptions());
 
   const rows = [
@@ -2142,8 +2501,9 @@ function renderUnifiedStats() {
     }
   ];
 
+  const visibleRows = rows.filter((row) => state.allowedProviders.has(String(row.providerId || '').trim().toLowerCase()));
   const expandableProviderIds = new Set(
-    rows.filter((row) => Array.isArray(row.breakdownRows) && row.breakdownRows.length > 0).map((row) => row.providerId)
+    visibleRows.filter((row) => Array.isArray(row.breakdownRows) && row.breakdownRows.length > 0).map((row) => row.providerId)
   );
   for (const providerId of Array.from(state.expandedUnifiedProviderIds)) {
     if (!expandableProviderIds.has(providerId)) {
@@ -2152,7 +2512,7 @@ function renderUnifiedStats() {
   }
 
   const renderedRows = [];
-  for (const row of rows) {
+  for (const row of visibleRows) {
     const canExpand = Array.isArray(row.breakdownRows) && row.breakdownRows.length > 0;
     const isExpanded = canExpand && state.expandedUnifiedProviderIds.has(row.providerId);
     renderedRows.push({
@@ -2172,7 +2532,7 @@ function renderUnifiedStats() {
     }
   }
 
-  const totalRow = rows.reduce(
+  const totalRow = visibleRows.reduce(
     (acc, row) => ({
       provider: 'Total',
       accountCount: acc.accountCount + Number(row.accountCount || 0),
@@ -2210,7 +2570,23 @@ function renderUnifiedStats() {
   ui.unifiedStatsBody.innerHTML = [...renderedRows, totalRow].map((row) => renderUnifiedStatRow(row)).join('');
 
   if (ui.unifiedStatsCoverage) {
-    ui.unifiedStatsCoverage.textContent = `Azure scoped accounts: ${azureStats.accountCount}. AWS accounts: ${awsStats.accountCount}. Wasabi accounts: ${wasabiStats.accountCount}. VSAx groups: ${vsaxStats.groupCount}. Other providers pending integration.`;
+    const coverageParts = [];
+    if (state.allowedProviders.has('azure')) {
+      coverageParts.push(`Azure scoped accounts: ${azureStats.accountCount}.`);
+    }
+    if (state.allowedProviders.has('aws')) {
+      coverageParts.push(`AWS accounts: ${awsStats.accountCount}.`);
+    }
+    if (state.allowedProviders.has('wasabi')) {
+      coverageParts.push(`Wasabi accounts: ${wasabiStats.accountCount}.`);
+    }
+    if (state.allowedProviders.has('vsax')) {
+      coverageParts.push(`VSAx groups: ${vsaxStats.groupCount}.`);
+    }
+    if (state.allowedProviders.has('gcp') || state.allowedProviders.has('other')) {
+      coverageParts.push('Other providers pending integration.');
+    }
+    ui.unifiedStatsCoverage.textContent = coverageParts.join(' ') || 'No provider stats loaded yet.';
   }
 
   if (ui.unifiedPricingAssumptions) {
@@ -2375,6 +2751,41 @@ function pruneAwsAccountScopedState() {
       state.awsDeepSyncingAccountIds.delete(accountId);
     }
   }
+
+  state.awsSelectedAccountIds = state.awsSelectedAccountIds.filter((accountId) => liveIds.has(accountId));
+}
+
+function pruneWasabiAccountScopedState() {
+  const liveIds = new Set(state.wasabiAccounts.map((account) => account.account_id));
+
+  for (const accountId of Object.keys(state.wasabiBucketsByAccount)) {
+    if (!liveIds.has(accountId)) {
+      delete state.wasabiBucketsByAccount[accountId];
+    }
+  }
+  for (const accountId of Object.keys(state.wasabiBucketLoadErrorsByAccount)) {
+    if (!liveIds.has(accountId)) {
+      delete state.wasabiBucketLoadErrorsByAccount[accountId];
+    }
+  }
+  for (const accountId of Object.keys(state.wasabiLoadingBucketsByAccount)) {
+    if (!liveIds.has(accountId)) {
+      delete state.wasabiLoadingBucketsByAccount[accountId];
+    }
+  }
+
+  for (const accountId of Array.from(state.expandedWasabiAccountIds)) {
+    if (!liveIds.has(accountId)) {
+      state.expandedWasabiAccountIds.delete(accountId);
+    }
+  }
+  for (const accountId of Array.from(state.wasabiSyncingAccountIds)) {
+    if (!liveIds.has(accountId)) {
+      state.wasabiSyncingAccountIds.delete(accountId);
+    }
+  }
+
+  state.wasabiSelectedAccountIds = state.wasabiSelectedAccountIds.filter((accountId) => liveIds.has(accountId));
 }
 
 function progressCellMarkup(progress) {
@@ -3119,15 +3530,29 @@ function renderAwsAccountDetailMarkup(accountId) {
 function renderAwsTotals() {
   if (
     !ui.awsTotalStorage ||
+    !ui.awsTotalStorage30d ||
+    !ui.awsStorageCost24h ||
+    !ui.awsStorageCost30d ||
     !ui.awsTotalObjects ||
+    !ui.awsTotalObjects30d ||
     !ui.awsTotalEfsCount ||
+    !ui.awsTotalEfsCount30d ||
     !ui.awsTotalEfsStorage ||
+    !ui.awsTotalEfsStorage30d ||
+    !ui.awsEfsCost24h ||
+    !ui.awsEfsCost30d ||
     !ui.awsTotalEgress24h ||
+    !ui.awsEgressCost24h ||
     !ui.awsTotalIngress24h ||
+    !ui.awsIngressCost24h ||
     !ui.awsTotalTransactions24h ||
+    !ui.awsTransactionsCost24h ||
     !ui.awsTotalEgress30d ||
+    !ui.awsEgressCost30d ||
     !ui.awsTotalIngress30d ||
+    !ui.awsIngressCost30d ||
     !ui.awsTotalTransactions30d ||
+    !ui.awsTransactionsCost30d ||
     !ui.awsEstimatedCost24h ||
     !ui.awsEstimatedCost30d ||
     !ui.awsTotalsCoverage ||
@@ -3136,22 +3561,45 @@ function renderAwsTotals() {
     return;
   }
 
-  const totals = computeAwsProviderStats(state.awsAccounts, getAwsPricingAssumptions());
+  const scopedAccounts = getScopedAwsAccounts();
+  const totals = computeAwsProviderStats(scopedAccounts, getAwsPricingAssumptions());
+  const selectedCount = scopedAccounts.length;
+  const availableCount = Array.isArray(state.awsAccounts) ? state.awsAccounts.length : 0;
 
   ui.awsTotalStorage.textContent = formatAwsAggregateMetric(totals.storage, formatBytes);
+  ui.awsTotalStorage30d.textContent = formatAwsAggregateMetric(totals.storage, formatBytes);
+  ui.awsStorageCost24h.textContent = formatCurrency(
+    totals.costs.s3StorageDailyCost + totals.costs.efsStorageDailyCost,
+    totals.pricing.currency
+  );
+  ui.awsStorageCost30d.textContent = formatCurrency(
+    totals.costs.s3StorageMonthlyCost + totals.costs.efsStorageMonthlyCost,
+    totals.pricing.currency
+  );
   ui.awsTotalObjects.textContent = formatAwsAggregateMetric(totals.objects, formatWholeNumber);
+  ui.awsTotalObjects30d.textContent = formatAwsAggregateMetric(totals.objects, formatWholeNumber);
   ui.awsTotalEfsCount.textContent = formatAwsAggregateMetric(totals.efsCount, formatWholeNumber);
+  ui.awsTotalEfsCount30d.textContent = formatAwsAggregateMetric(totals.efsCount, formatWholeNumber);
   ui.awsTotalEfsStorage.textContent = formatAwsAggregateMetric(totals.efsStorage, formatBytes);
+  ui.awsTotalEfsStorage30d.textContent = formatAwsAggregateMetric(totals.efsStorage, formatBytes);
+  ui.awsEfsCost24h.textContent = formatCurrency(totals.costs.efsStorageDailyCost, totals.pricing.currency);
+  ui.awsEfsCost30d.textContent = formatCurrency(totals.costs.efsStorageMonthlyCost, totals.pricing.currency);
   ui.awsTotalEgress24h.textContent = formatAwsAggregateMetric(totals.egress24h, formatBytes);
+  ui.awsEgressCost24h.textContent = formatCurrency(totals.costs.egressCost24h, totals.pricing.currency);
   ui.awsTotalIngress24h.textContent = formatAwsAggregateMetric(totals.ingress24h, formatBytes);
+  ui.awsIngressCost24h.textContent = formatCurrency(0, totals.pricing.currency);
   ui.awsTotalTransactions24h.textContent = formatAwsAggregateMetric(totals.transactions24h, formatWholeNumber);
+  ui.awsTransactionsCost24h.textContent = formatCurrency(totals.costs.transactionsCost24h, totals.pricing.currency);
   ui.awsTotalEgress30d.textContent = formatAwsAggregateMetric(totals.egress30d, formatBytes);
+  ui.awsEgressCost30d.textContent = formatCurrency(totals.costs.egressCost30d, totals.pricing.currency);
   ui.awsTotalIngress30d.textContent = formatAwsAggregateMetric(totals.ingress30d, formatBytes);
+  ui.awsIngressCost30d.textContent = formatCurrency(0, totals.pricing.currency);
   ui.awsTotalTransactions30d.textContent = formatAwsAggregateMetric(totals.transactions30d, formatWholeNumber);
+  ui.awsTransactionsCost30d.textContent = formatCurrency(totals.costs.transactionsCost30d, totals.pricing.currency);
   ui.awsEstimatedCost24h.textContent = formatCurrency(totals.costs.totalEstimatedCost24h, totals.pricing.currency);
   ui.awsEstimatedCost30d.textContent = formatCurrency(totals.costs.totalEstimatedCost30d, totals.pricing.currency);
 
-  ui.awsTotalsCoverage.textContent = `${state.awsAccounts.length} account(s) in cache. Coverage: storage ${totals.storage.accountCountWithMetric}/${totals.accountCount}, objects ${totals.objects.accountCountWithMetric}/${totals.accountCount}, egress24 ${totals.egress24h.accountCountWithMetric}/${totals.accountCount}, ingress24 ${totals.ingress24h.accountCountWithMetric}/${totals.accountCount}, tx24 ${totals.transactions24h.accountCountWithMetric}/${totals.accountCount}, efs ${totals.efsCount.accountCountWithMetric}/${totals.accountCount}, security ${totals.securityScanBuckets.accountCountWithMetric}/${totals.accountCount}.`;
+  ui.awsTotalsCoverage.textContent = `${selectedCount}/${availableCount} account(s) in scope. Coverage: storage ${totals.storage.accountCountWithMetric}/${totals.accountCount}, objects ${totals.objects.accountCountWithMetric}/${totals.accountCount}, egress24 ${totals.egress24h.accountCountWithMetric}/${totals.accountCount}, ingress24 ${totals.ingress24h.accountCountWithMetric}/${totals.accountCount}, tx24 ${totals.transactions24h.accountCountWithMetric}/${totals.accountCount}, efs ${totals.efsCount.accountCountWithMetric}/${totals.accountCount}, security ${totals.securityScanBuckets.accountCountWithMetric}/${totals.accountCount}.`;
 
   const deepDefault = Boolean(state.config?.aws?.defaultDeepScan);
   const requestMetricsDefault = Boolean(state.config?.aws?.defaultRequestMetrics);
@@ -3299,20 +3747,22 @@ function renderAwsAccounts() {
   }
 
   syncAwsButtonsDisabledState();
+  renderAwsAccountSelection();
   renderAwsTotals();
   renderAwsSortHeaderState();
   ui.awsAccountsBody.innerHTML = '';
 
   if (!configured) {
     ui.awsAccountsBody.innerHTML = `<tr><td colspan=\"14\" class=\"muted\">${escapeHtml(
-      configError || 'Configure AWS_ACCOUNTS_JSON (or AWS_DEFAULT_* vars) on the server to enable AWS sync.'
+      configError || 'Configure AWS vendor credentials in Admin -> Vendor onboarding (or AWS_DEFAULT_* vars fallback) to enable AWS sync.'
     )}</td></tr>`;
     renderAwsSecurityAccounts();
     return;
   }
 
   const pricing = getAwsPricingAssumptions();
-  const accountsWithDerived = state.awsAccounts.map((account) => ({
+  const scopedAccounts = getScopedAwsAccounts();
+  const accountsWithDerived = scopedAccounts.map((account) => ({
     ...account,
     _derived: computeAwsAccountDerivedMetrics(account, pricing)
   }));
@@ -3424,14 +3874,15 @@ function renderAwsSecurityAccounts() {
 
   if (!configured) {
     ui.awsSecurityAccountsBody.innerHTML = `<tr><td colspan=\"10\" class=\"muted\">${escapeHtml(
-      configError || 'Configure AWS_ACCOUNTS_JSON (or AWS_DEFAULT_* vars) on the server to enable AWS security posture scans.'
+      configError || 'Configure AWS vendor credentials in Admin -> Vendor onboarding (or AWS_DEFAULT_* vars fallback) to enable AWS security posture scans.'
     )}</td></tr>`;
     return;
   }
 
+  const scopedAccounts = getScopedAwsAccounts();
   const query = normalizeSearch(ui.awsSecuritySearchInput?.value || '');
   const filteredAccounts = query
-    ? state.awsAccounts.filter((account) => {
+    ? scopedAccounts.filter((account) => {
         const scanned = Number(account.security_scan_bucket_count || 0);
         const bucketCount = Number(account.bucket_count || 0);
         const securityErrors = Number(account.security_error_bucket_count || 0);
@@ -3452,7 +3903,7 @@ function renderAwsSecurityAccounts() {
           account.last_error
         ].some((field) => containsSearch(field, query));
       })
-    : state.awsAccounts;
+    : scopedAccounts;
 
   if (!filteredAccounts.length) {
     ui.awsSecurityAccountsBody.innerHTML = '<tr><td colspan=\"10\" class=\"muted\">No AWS security rows match this search.</td></tr>';
@@ -3573,7 +4024,11 @@ function renderWasabiBucketDetailMarkup(accountId) {
 function renderWasabiTotals() {
   if (
     !ui.wasabiTotalStorage ||
+    !ui.wasabiTotalStorage30d ||
+    !ui.wasabiStorageCost24h ||
+    !ui.wasabiStorageCost30d ||
     !ui.wasabiTotalObjects ||
+    !ui.wasabiTotalObjects30d ||
     !ui.wasabiEstimatedCost24h ||
     !ui.wasabiEstimatedCost30d ||
     !ui.wasabiTotalsCoverage ||
@@ -3582,20 +4037,55 @@ function renderWasabiTotals() {
     return;
   }
 
-  const totals = computeWasabiProviderStats(state.wasabiAccounts, getWasabiPricingAssumptions());
+  const scopedAccounts = getScopedWasabiAccounts();
+  const totals = computeWasabiProviderStats(scopedAccounts, getWasabiPricingAssumptions());
   const pricing = totals.pricing;
+  const selectedCount = scopedAccounts.length;
+  const availableCount = Array.isArray(state.wasabiAccounts) ? state.wasabiAccounts.length : 0;
 
   ui.wasabiTotalStorage.textContent = formatBytes(totals.storageBytes);
+  ui.wasabiTotalStorage30d.textContent = formatBytes(totals.storageBytes);
+  ui.wasabiStorageCost24h.textContent = formatCurrency(totals.estimated24h, pricing.currency);
+  ui.wasabiStorageCost30d.textContent = formatCurrency(totals.estimated30d, pricing.currency);
   ui.wasabiTotalObjects.textContent = formatWholeNumber(totals.objectCount);
+  ui.wasabiTotalObjects30d.textContent = formatWholeNumber(totals.objectCount);
   ui.wasabiEstimatedCost24h.textContent = formatCurrency(totals.estimated24h, pricing.currency);
   ui.wasabiEstimatedCost30d.textContent = formatCurrency(totals.estimated30d, pricing.currency);
-  ui.wasabiTotalsCoverage.textContent = `${state.wasabiAccounts.length} account(s), ${totals.bucketCount.toLocaleString()} bucket(s) in cache.`;
+  ui.wasabiTotalsCoverage.textContent = `${selectedCount}/${availableCount} account(s), ${totals.bucketCount.toLocaleString()} bucket(s) in scope cache.`;
   ui.wasabiPricingAssumptions.textContent = `Estimate assumptions: ${formatCurrency(
     pricing.storagePricePerTbMonth,
     pricing.currency
   )}/TB-month from ${pricing.source} as of ${pricing.asOfDate}; ${pricing.daysInMonth}-day month; minimum billable ${pricing.minimumBillableTb} TB/account/month.`;
 
   renderUnifiedStats();
+}
+
+function renderGcpTotals() {
+  if (ui.gcpTotalStorage24h) ui.gcpTotalStorage24h.textContent = '0 B';
+  if (ui.gcpTotalStorage30d) ui.gcpTotalStorage30d.textContent = '0 B';
+  if (ui.gcpStorageCost24h) ui.gcpStorageCost24h.textContent = '$0.00';
+  if (ui.gcpStorageCost30d) ui.gcpStorageCost30d.textContent = '$0.00';
+  if (ui.gcpTotalEgress24h) ui.gcpTotalEgress24h.textContent = '0 B';
+  if (ui.gcpTotalEgress30d) ui.gcpTotalEgress30d.textContent = '0 B';
+  if (ui.gcpEgressCost24h) ui.gcpEgressCost24h.textContent = '$0.00';
+  if (ui.gcpEgressCost30d) ui.gcpEgressCost30d.textContent = '$0.00';
+  if (ui.gcpTotalIngress24h) ui.gcpTotalIngress24h.textContent = '0 B';
+  if (ui.gcpTotalIngress30d) ui.gcpTotalIngress30d.textContent = '0 B';
+  if (ui.gcpIngressCost24h) ui.gcpIngressCost24h.textContent = '$0.00';
+  if (ui.gcpIngressCost30d) ui.gcpIngressCost30d.textContent = '$0.00';
+  if (ui.gcpTotalTransactions24h) ui.gcpTotalTransactions24h.textContent = '0';
+  if (ui.gcpTotalTransactions30d) ui.gcpTotalTransactions30d.textContent = '0';
+  if (ui.gcpTransactionsCost24h) ui.gcpTransactionsCost24h.textContent = '$0.00';
+  if (ui.gcpTransactionsCost30d) ui.gcpTransactionsCost30d.textContent = '$0.00';
+  if (ui.gcpEstimatedCost24h) ui.gcpEstimatedCost24h.textContent = '$0.00';
+  if (ui.gcpEstimatedCost30d) ui.gcpEstimatedCost30d.textContent = '$0.00';
+  if (ui.gcpTotalsCoverage) {
+    ui.gcpTotalsCoverage.textContent = '0 account(s) in scope. Provider integration not implemented yet.';
+  }
+  if (ui.gcpPricingAssumptions) {
+    ui.gcpPricingAssumptions.textContent =
+      'Scope total placeholders are active. Connect GCP account credentials to populate actual usage and cost values.';
+  }
 }
 
 function getWasabiAccountSortValue(account, sortKey, pricing) {
@@ -3692,6 +4182,7 @@ function renderWasabiAccounts() {
   }
 
   syncWasabiButtonsDisabledState();
+  renderWasabiAccountSelection();
   renderWasabiTotals();
   renderWasabiSortHeaderState();
   ui.wasabiAccountsBody.innerHTML = '';
@@ -3704,9 +4195,10 @@ function renderWasabiAccounts() {
   }
 
   const pricing = getWasabiPricingAssumptions();
+  const scopedAccounts = getScopedWasabiAccounts();
   const query = normalizeSearch(ui.wasabiSearchInput?.value || '');
   const filteredAccounts = query
-    ? state.wasabiAccounts.filter((account) => {
+    ? scopedAccounts.filter((account) => {
         const estimate = estimateWasabiStorageCost(account.total_usage_bytes, pricing);
         return [
           account.display_name,
@@ -3721,7 +4213,7 @@ function renderWasabiAccounts() {
           account.last_error
         ].some((field) => containsSearch(field, query));
       })
-    : state.wasabiAccounts;
+    : scopedAccounts;
 
   if (!filteredAccounts.length) {
     ui.wasabiAccountsBody.innerHTML = '<tr><td colspan=\"11\" class=\"muted\">No Wasabi rows match this search.</td></tr>';
@@ -3871,7 +4363,11 @@ function renderVsaxDiskDetailMarkup(groupName) {
 function renderVsaxTotals() {
   if (
     !ui.vsaxTotalAllocated ||
+    !ui.vsaxTotalAllocated30d ||
     !ui.vsaxTotalUsed ||
+    !ui.vsaxTotalUsed30d ||
+    !ui.vsaxStorageCost24h ||
+    !ui.vsaxStorageCost30d ||
     !ui.vsaxEstimatedCost24h ||
     !ui.vsaxEstimatedCost30d ||
     !ui.vsaxTotalsCoverage ||
@@ -3886,7 +4382,11 @@ function renderVsaxTotals() {
   const selectedCount = state.vsaxSelectedGroupNames.length;
 
   ui.vsaxTotalAllocated.textContent = formatBytes(totals.allocatedBytes);
+  ui.vsaxTotalAllocated30d.textContent = formatBytes(totals.allocatedBytes);
   ui.vsaxTotalUsed.textContent = formatBytes(totals.usedBytes);
+  ui.vsaxTotalUsed30d.textContent = formatBytes(totals.usedBytes);
+  ui.vsaxStorageCost24h.textContent = formatCurrency(totals.estimated24h, pricing.currency);
+  ui.vsaxStorageCost30d.textContent = formatCurrency(totals.estimated30d, pricing.currency);
   ui.vsaxEstimatedCost24h.textContent = formatCurrency(totals.estimated24h, pricing.currency);
   ui.vsaxEstimatedCost30d.textContent = formatCurrency(totals.estimated30d, pricing.currency);
   ui.vsaxTotalsCoverage.textContent = `${selectedCount}/${availableCount} selected group(s), ${totals.deviceCount.toLocaleString()} device(s), ${totals.diskCount.toLocaleString()} disk row(s) in cache.`;
@@ -4236,6 +4736,15 @@ function renderIpRuleList(values, emptyText = 'None') {
 async function initConnection() {
   const config = await api('/api/config');
   state.config = config;
+  state.awsSelectedAccountIds = Array.isArray(config?.aws?.selectedAccountIds)
+    ? config.aws.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  state.wasabiSelectedAccountIds = Array.isArray(config?.wasabi?.selectedAccountIds)
+    ? config.wasabi.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  applyStorageUserScope(config.storageUserKey, { reloadState: true });
+  applyAllowedProvidersFromConfig();
+  renderProviderPanels();
   syncAwsButtonsDisabledState();
   renderAwsAccounts();
   syncWasabiButtonsDisabledState();
@@ -4243,20 +4752,29 @@ async function initConnection() {
   syncVsaxButtonsDisabledState();
   renderVsaxGroups();
 
-  if (!config.configured) {
-    const missing = Array.isArray(config.missing) ? config.missing.join(', ') : 'Missing environment settings.';
-    throw new Error(`Service principal auth is not configured: ${missing}`);
+  const azureAllowed = state.allowedProviders.has('azure');
+  if (ui.refreshSubsBtn) {
+    ui.refreshSubsBtn.disabled = !azureAllowed;
+  }
+  if (ui.userInfo) {
+    ui.userInfo.textContent = azureAllowed
+      ? `Service principal ${config.azureClientId || ''}`
+      : 'Azure access disabled for this user';
   }
 
-  ui.userInfo.textContent = `Service principal ${config.azureClientId || ''}`;
-  ui.refreshSubsBtn.disabled = false;
+  if (azureAllowed) {
+    if (!config.configured) {
+      const missing = Array.isArray(config.missing) ? config.missing.join(', ') : 'Missing environment settings.';
+      throw new Error(`Service principal auth is not configured: ${missing}`);
+    }
 
-  if (config.proxy?.enabled) {
-    log(`Proxy enabled for Azure egress via ${config.proxy.proxy}.`);
-  } else if (config.proxy?.error) {
-    log(`Proxy configuration error: ${config.proxy.error}`, true);
-  } else {
-    log('Proxy disabled. Azure calls use default network egress.');
+    if (config.proxy?.enabled) {
+      log(`Proxy enabled for Azure egress via ${config.proxy.proxy}.`);
+    } else if (config.proxy?.error) {
+      log(`Proxy configuration error: ${config.proxy.error}`, true);
+    } else {
+      log('Proxy disabled. Azure calls use default network egress.');
+    }
   }
 
   if (config.throttling) {
@@ -4265,62 +4783,90 @@ async function initConnection() {
     );
   }
 
-  if (config.aws?.configured) {
-    log(
-      `AWS configured: ${config.aws.accountCount || 0} account(s), refresh interval=${config.aws.syncIntervalHours || 24}h, cacheTtl=${config.aws.cacheTtlHours || 24}h, default mode=${config.aws.defaultDeepScan ? 'deep' : 'low-cost'}, default security scan=${config.aws.defaultSecurityScan ? 'enabled' : 'disabled'}.`
-    );
-    const awsPricing = getAwsPricingAssumptions();
-    log(
-      `AWS pricing: S3 ${formatCurrency(awsPricing.s3StorageStandardGbMonth, awsPricing.currency)}/GB-month, EFS ${formatCurrency(
-        awsPricing.efsStandardGbMonth,
-        awsPricing.currency
-      )}/GB-month, egress ${formatCurrency(awsPricing.s3EgressPerGb, awsPricing.currency)}/GB, request ${formatCurrency(
-        awsPricing.s3RequestUnitPrice,
-        awsPricing.currency
-      )}/${awsPricing.s3RequestUnitSize.toLocaleString()} from ${awsPricing.source} (as of ${awsPricing.asOfDate}).`
-    );
-  } else if (config.aws?.configError) {
-    log(`AWS config error: ${config.aws.configError}`, true);
-  } else {
-    log('AWS not configured yet. Add AWS account settings to enable that tab.');
+  if (state.allowedProviders.has('aws')) {
+    if (config.aws?.configured) {
+      log(
+        `AWS configured: ${config.aws.accountCount || 0} account(s), refresh interval=${config.aws.syncIntervalHours || 24}h, cacheTtl=${config.aws.cacheTtlHours || 24}h, default mode=${config.aws.defaultDeepScan ? 'deep' : 'low-cost'}, default security scan=${config.aws.defaultSecurityScan ? 'enabled' : 'disabled'}.`
+      );
+      const awsPricing = getAwsPricingAssumptions();
+      log(
+        `AWS pricing: S3 ${formatCurrency(awsPricing.s3StorageStandardGbMonth, awsPricing.currency)}/GB-month, EFS ${formatCurrency(
+          awsPricing.efsStandardGbMonth,
+          awsPricing.currency
+        )}/GB-month, egress ${formatCurrency(awsPricing.s3EgressPerGb, awsPricing.currency)}/GB, request ${formatCurrency(
+          awsPricing.s3RequestUnitPrice,
+          awsPricing.currency
+        )}/${awsPricing.s3RequestUnitSize.toLocaleString()} from ${awsPricing.source} (as of ${awsPricing.asOfDate}).`
+      );
+    } else if (config.aws?.configError) {
+      log(`AWS config error: ${config.aws.configError}`, true);
+    } else {
+      log('AWS not configured yet. Add AWS account settings to enable that tab.');
+    }
   }
 
-  if (config.wasabi?.configured) {
-    log(
-      `Wasabi configured: ${config.wasabi.accountCount || 0} account(s), refresh interval=${config.wasabi.syncIntervalHours || 24}h, cacheTtl=${config.wasabi.cacheTtlHours || 24}h.`
-    );
-    const wasabiPricing = getWasabiPricingAssumptions();
-    log(
-      `Wasabi pricing: ${formatCurrency(wasabiPricing.storagePricePerTbMonth, wasabiPricing.currency)}/TB-month from ${wasabiPricing.source} (as of ${wasabiPricing.asOfDate}).`
-    );
-  } else if (config.wasabi?.configError) {
-    log(`Wasabi config error: ${config.wasabi.configError}`, true);
-  } else {
-    log('Wasabi not configured yet. Add WASABI account settings to enable that tab.');
+  if (state.allowedProviders.has('wasabi')) {
+    if (config.wasabi?.configured) {
+      log(
+        `Wasabi configured: ${config.wasabi.accountCount || 0} account(s), refresh interval=${config.wasabi.syncIntervalHours || 24}h, cacheTtl=${config.wasabi.cacheTtlHours || 24}h.`
+      );
+      const wasabiPricing = getWasabiPricingAssumptions();
+      log(
+        `Wasabi pricing: ${formatCurrency(wasabiPricing.storagePricePerTbMonth, wasabiPricing.currency)}/TB-month from ${wasabiPricing.source} (as of ${wasabiPricing.asOfDate}).`
+      );
+    } else if (config.wasabi?.configError) {
+      log(`Wasabi config error: ${config.wasabi.configError}`, true);
+    } else {
+      log('Wasabi not configured yet. Add WASABI account settings to enable that tab.');
+    }
   }
 
-  if (config.vsax?.configured) {
-    const groups = Array.isArray(config.vsax.groups) ? config.vsax.groups : [];
-    const groupFilterDefined = Boolean(config.vsax?.config?.groupFilterDefined);
-    log(
-      `VSAx configured: ${groups.length} env-scoped group(s), refresh interval=${formatSyncInterval(
-        config.vsax.syncIntervalMinutes,
-        config.vsax.syncIntervalHours,
-        24
-      )}, cacheTtl=${config.vsax.cacheTtlHours || 24}h, mode=${
-        groupFilterDefined ? 'env-filtered' : 'auto-discover'
-      }, groups=${groups.join(', ') || 'all groups from API'}.`
-    );
-    const vsaxPricing = getVsaxPricingAssumptions();
-    log(
-      `VSAx pricing: ${formatCurrency(vsaxPricing.storagePricePerTbMonth, vsaxPricing.currency)}/TB-month from ${vsaxPricing.source} (as of ${vsaxPricing.asOfDate}).`
-    );
-  } else if (config.vsax?.configError) {
-    log(`VSAx config error: ${config.vsax.configError}`, true);
-  } else {
-    log('VSAx not configured yet. Add VSAx settings to enable that tab.');
+  if (state.allowedProviders.has('vsax')) {
+    if (config.vsax?.configured) {
+      const groups = Array.isArray(config.vsax.groups) ? config.vsax.groups : [];
+      const groupFilterDefined = Boolean(config.vsax?.config?.groupFilterDefined);
+      log(
+        `VSAx configured: ${groups.length} env-scoped group(s), refresh interval=${formatSyncInterval(
+          config.vsax.syncIntervalMinutes,
+          config.vsax.syncIntervalHours,
+          24
+        )}, cacheTtl=${config.vsax.cacheTtlHours || 24}h, mode=${
+          groupFilterDefined ? 'env-filtered' : 'auto-discover'
+        }, groups=${groups.join(', ') || 'all groups from API'}.`
+      );
+      const vsaxPricing = getVsaxPricingAssumptions();
+      log(
+        `VSAx pricing: ${formatCurrency(vsaxPricing.storagePricePerTbMonth, vsaxPricing.currency)}/TB-month from ${vsaxPricing.source} (as of ${vsaxPricing.asOfDate}).`
+      );
+    } else if (config.vsax?.configError) {
+      log(`VSAx config error: ${config.vsax.configError}`, true);
+    } else {
+      log('VSAx not configured yet. Add VSAx settings to enable that tab.');
+    }
   }
 }
+
+window.addEventListener('cloudstudio-storage-provider-select', (event) => {
+  const provider = String(event?.detail?.provider || '').trim().toLowerCase();
+  if (!provider) {
+    return;
+  }
+  setActiveProvider(provider, { persist: true });
+});
+
+window.CLOUDSTUDIO_STORAGE_EMBED_API = {
+  setProvider(provider) {
+    const normalized = String(provider || '').trim().toLowerCase();
+    if (!normalized || !ALLOWED_PROVIDERS.has(normalized)) {
+      return false;
+    }
+    setActiveProvider(normalized, { persist: true });
+    return true;
+  },
+  getAllowedProviders() {
+    return Array.from(state.allowedProviders.values());
+  }
+};
 
 async function loadIpAliasesFromServer() {
   const payload = await api('/api/ip-address');
@@ -4405,6 +4951,9 @@ async function refreshAwsAccountsFromCache() {
   }
 
   state.awsAccounts = payload.accounts || [];
+  state.awsSelectedAccountIds = Array.isArray(payload.selectedAccountIds)
+    ? payload.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
   pruneAwsAccountScopedState();
   renderAwsAccounts();
 }
@@ -4567,6 +5116,10 @@ async function refreshWasabiAccountsFromCache() {
     }
   }
   state.wasabiAccounts = payload.accounts || [];
+  state.wasabiSelectedAccountIds = Array.isArray(payload.selectedAccountIds)
+    ? payload.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  pruneWasabiAccountScopedState();
   renderWasabiAccounts();
 }
 
@@ -4643,6 +5196,7 @@ async function syncWasabiAccounts(accountIds = [], force = true) {
     }
 
     state.wasabiAccounts = payload.accounts || [];
+    pruneWasabiAccountScopedState();
     if (isSingle) {
       await loadWasabiBucketsForAccount(ids[0], true);
     } else {
@@ -4667,6 +5221,37 @@ async function syncWasabiAccounts(accountIds = [], force = true) {
     }
     renderWasabiAccounts();
   }
+}
+
+async function saveAwsAccountSelection() {
+  const selectedIds = selectedAwsAccountIds();
+  const payload = await api('/api/aws/accounts/select', {
+    method: 'POST',
+    body: {
+      accountIds: selectedIds
+    }
+  });
+  state.awsSelectedAccountIds = Array.isArray(payload.selectedAccountIds)
+    ? payload.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  renderAwsAccounts();
+  renderAwsSecurityAccounts();
+  log(`Saved AWS scope (${state.awsSelectedAccountIds.length || state.awsAccounts.length} account(s)).`);
+}
+
+async function saveWasabiAccountSelection() {
+  const selectedIds = selectedWasabiAccountIds();
+  const payload = await api('/api/wasabi/accounts/select', {
+    method: 'POST',
+    body: {
+      accountIds: selectedIds
+    }
+  });
+  state.wasabiSelectedAccountIds = Array.isArray(payload.selectedAccountIds)
+    ? payload.selectedAccountIds.map((id) => String(id || '').trim().toLowerCase()).filter(Boolean)
+    : [];
+  renderWasabiAccounts();
+  log(`Saved Wasabi scope (${state.wasabiSelectedAccountIds.length || state.wasabiAccounts.length} account(s)).`);
 }
 
 function applyPullAllJobState(job) {
@@ -5413,6 +5998,24 @@ if (ui.awsExportAllBtn) {
   });
 }
 
+if (ui.awsAccountList) {
+  ui.awsAccountList.addEventListener('change', () => {
+    renderAwsTotals();
+    renderAwsAccounts();
+    renderAwsSecurityAccounts();
+  });
+}
+
+if (ui.saveAwsAccountsBtn) {
+  ui.saveAwsAccountsBtn.addEventListener('click', async () => {
+    try {
+      await saveAwsAccountSelection();
+    } catch (error) {
+      log(`Failed to save AWS account scope: ${error.message}`, true);
+    }
+  });
+}
+
 if (ui.wasabiLoadBtn) {
   ui.wasabiLoadBtn.addEventListener('click', async () => {
     try {
@@ -5432,6 +6035,23 @@ if (ui.wasabiExportAllBtn) {
       });
     } catch (error) {
       log(`CSV export failed: ${error.message}`, true);
+    }
+  });
+}
+
+if (ui.wasabiAccountList) {
+  ui.wasabiAccountList.addEventListener('change', () => {
+    renderWasabiTotals();
+    renderWasabiAccounts();
+  });
+}
+
+if (ui.saveWasabiAccountsBtn) {
+  ui.saveWasabiAccountsBtn.addEventListener('click', async () => {
+    try {
+      await saveWasabiAccountSelection();
+    } catch (error) {
+      log(`Failed to save Wasabi account scope: ${error.message}`, true);
     }
   });
 }
@@ -5470,6 +6090,13 @@ if (ui.saveVsaxGroupsBtn) {
 if (ui.vsaxGroupList) {
   ui.vsaxGroupList.addEventListener('change', () => {
     syncVsaxButtonsDisabledState();
+  });
+}
+
+if (ui.vsaxGroupSearchInput) {
+  ui.vsaxGroupSearchInput.addEventListener('input', () => {
+    state.vsaxGroupSearchText = String(ui.vsaxGroupSearchInput.value || '').trim();
+    applyVsaxGroupSelectionFilter();
   });
 }
 
@@ -5864,36 +6491,76 @@ if (ui.vsaxGroupsBody) {
     renderAzureContentViews();
     await initConnection();
     await loadIpAliasesFromServer();
-    try {
-      await loadSubscriptionsFromAzure();
-    } catch (error) {
-      log(`Live subscription sync failed, using cached list: ${error.message}`);
-      const subPayload = await api('/api/subscriptions');
-      state.subscriptions = subPayload.subscriptions || [];
+    const azureAllowed = state.allowedProviders.has('azure');
+    const awsAllowed = state.allowedProviders.has('aws');
+    const wasabiAllowed = state.allowedProviders.has('wasabi');
+    const vsaxAllowed = state.allowedProviders.has('vsax');
+
+    if (azureAllowed) {
+      try {
+        await loadSubscriptionsFromAzure();
+      } catch (error) {
+        log(`Live subscription sync failed, using cached list: ${error.message}`);
+        const subPayload = await api('/api/subscriptions');
+        state.subscriptions = subPayload.subscriptions || [];
+        renderSubscriptions();
+      }
+
+      const accountsPayload = await api('/api/storage-accounts');
+      state.storageAccounts = accountsPayload.storageAccounts || [];
+      pruneAccountScopedState();
+      ensureProgressEntries();
+      renderAccounts();
+      renderSecurityAccounts();
+
+      const latestJobPayload = await api('/api/jobs/pull-all/status');
+      if (latestJobPayload.job) {
+        applyPullAllJobState(latestJobPayload.job);
+        if (latestJobPayload.job.status === 'running') {
+          log(`Resumed active pull-all job ${latestJobPayload.job.id}.`);
+          stopPullAllPolling();
+          state.pullAllPollTimer = setTimeout(() => {
+            void pollPullAllJob(latestJobPayload.job.id);
+          }, 900);
+        }
+      }
+    } else {
+      state.subscriptions = [];
+      state.storageAccounts = [];
+      pruneAccountScopedState();
+      ensureProgressEntries();
       renderSubscriptions();
+      renderAccounts();
+      renderSecurityAccounts();
     }
 
-    const accountsPayload = await api('/api/storage-accounts');
-    state.storageAccounts = accountsPayload.storageAccounts || [];
-    pruneAccountScopedState();
-    ensureProgressEntries();
-    renderAccounts();
-    renderSecurityAccounts();
+    if (awsAllowed) {
+      await refreshAwsAccountsFromCache();
+    } else {
+      state.awsAccounts = [];
+      pruneAwsAccountScopedState();
+      renderAwsAccounts();
+    }
 
-    await refreshAwsAccountsFromCache();
-    await refreshWasabiAccountsFromCache();
-    await refreshVsaxGroupsFromCache();
+    if (wasabiAllowed) {
+      await refreshWasabiAccountsFromCache();
+    } else {
+      state.wasabiAccounts = [];
+      pruneWasabiAccountScopedState();
+      renderWasabiAccounts();
+    }
 
-    const latestJobPayload = await api('/api/jobs/pull-all/status');
-    if (latestJobPayload.job) {
-      applyPullAllJobState(latestJobPayload.job);
-      if (latestJobPayload.job.status === 'running') {
-        log(`Resumed active pull-all job ${latestJobPayload.job.id}.`);
-        stopPullAllPolling();
-        state.pullAllPollTimer = setTimeout(() => {
-          void pollPullAllJob(latestJobPayload.job.id);
-        }, 900);
-      }
+    if (vsaxAllowed) {
+      await refreshVsaxGroupsFromCache();
+    } else {
+      state.vsaxGroups = [];
+      state.vsaxAvailableGroups = [];
+      state.vsaxSelectedGroupNames = [];
+      state.vsaxDisksByGroup = {};
+      state.vsaxDiskLoadErrorsByGroup = {};
+      state.vsaxLoadingDisksByGroup = {};
+      state.expandedVsaxGroupNames.clear();
+      renderVsaxGroups();
     }
 
     log('App ready. Load subscriptions and start pulling data.');

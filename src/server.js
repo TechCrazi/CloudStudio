@@ -4,6 +4,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const path = require('path');
 const express = require('express');
+const MarkdownIt = require('markdown-it');
 const { CloudWatchClient, ListMetricsCommand, GetMetricStatisticsCommand } = require('@aws-sdk/client-cloudwatch');
 
 const {
@@ -41,14 +42,26 @@ const {
   logoutRequest
 } = require('./auth');
 const { encryptJson, decryptJson, generateApiKey, hashApiKey, maskApiKey } = require('./crypto');
+const { getAwsAccountConfigs } = require('./aws-account-config');
 const { createManagedServices } = require('./services');
 const { createDbBackupScheduler } = require('./db-backup');
 const { registerCloudMetricsRoutes } = require('./modules/cloud-metrics/server');
+const {
+  registerCloudDatabaseRoutes,
+  normalizeCloudDatabaseProvider,
+  buildCloudDatabaseViewFromCloudMetrics
+} = require('./modules/cloud-database/server');
 
 const app = express();
 app.set('etag', false);
 const port = Number.parseInt(process.env.PORT || process.env.CLOUDSTUDIO_PORT || '9090', 10);
 const publicDir = path.resolve(__dirname, '..', 'public');
+const docsDir = path.join(publicDir, 'docs');
+const markdown = new MarkdownIt({
+  html: false,
+  linkify: true,
+  typographer: true
+});
 const INTERNAL_API_TOKEN_HEADER = 'x-cloudstudio-internal-token';
 const internalApiToken = crypto.randomBytes(24).toString('hex');
 const FALSE_ENV_VALUES = new Set(['0', 'false', 'no', 'off']);
@@ -86,6 +99,22 @@ function parseEnvStringList(input, options = {}) {
     )
     .filter(Boolean)
     .map((item) => (lowercase ? item.toLowerCase() : item));
+}
+
+function normalizeJsonEnvValue(rawValue) {
+  const text = String(rawValue || '').trim();
+  if (!text) {
+    return '';
+  }
+
+  if (
+    (text.startsWith("'") && text.endsWith("'") && text.length >= 2) ||
+    (text.startsWith('"') && text.endsWith('"') && text.length >= 2)
+  ) {
+    return text.slice(1, -1).trim();
+  }
+
+  return text;
 }
 
 function parseBooleanEnv(value, defaultValue = true) {
@@ -162,7 +191,179 @@ function parseBrandingEnv(value, defaults = {}) {
   };
 }
 
-const APP_BRANDING = Object.freeze({
+function extractMarkdownTitle(markdownSource = '', fallback = 'CloudStudio Docs') {
+  const source = String(markdownSource || '');
+  const match = source.match(/^\s*#\s+(.+?)\s*$/m);
+  if (!match) {
+    return fallback;
+  }
+  return String(match[1] || '').trim() || fallback;
+}
+
+function escapeHtml(text) {
+  return String(text || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function resolveDocsFilePath(requestedPath = '') {
+  const decoded = decodeURIComponent(String(requestedPath || '').trim());
+  const trimmed = decoded.replace(/^\/+/, '');
+  if (!trimmed) {
+    return null;
+  }
+  const normalized = path.normalize(trimmed);
+  if (!normalized || normalized.startsWith('..') || path.isAbsolute(normalized)) {
+    return null;
+  }
+  const absolutePath = path.join(docsDir, normalized);
+  const docsRoot = docsDir.endsWith(path.sep) ? docsDir : `${docsDir}${path.sep}`;
+  if (absolutePath !== docsDir && !absolutePath.startsWith(docsRoot)) {
+    return null;
+  }
+  return absolutePath;
+}
+
+function renderMarkdownPage({ title, relativePath, html }) {
+  const safeTitle = escapeHtml(title || 'CloudStudio Docs');
+  const safePath = escapeHtml(relativePath || '');
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${safeTitle}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        font-family: Sora, Inter, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        background: radial-gradient(circle at 10% -30%, rgba(54, 115, 176, 0.26), rgba(6, 11, 16, 0.94) 48%), #070d14;
+        color: #e6eef7;
+        line-height: 1.6;
+      }
+      .page {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 22px 20px 42px;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        backdrop-filter: blur(8px);
+        background: linear-gradient(180deg, rgba(7, 13, 20, 0.95), rgba(7, 13, 20, 0.78));
+        border-bottom: 1px solid rgba(119, 152, 188, 0.24);
+      }
+      .topbar .row {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 10px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+      .brand {
+        font-size: 13px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #9ab4cd;
+      }
+      .path {
+        font-size: 12px;
+        color: #87a9c8;
+      }
+      a {
+        color: #7ec8ff;
+      }
+      a:hover {
+        color: #a7ddff;
+      }
+      .doc {
+        border: 1px solid rgba(125, 158, 194, 0.22);
+        border-radius: 14px;
+        background: rgba(10, 17, 25, 0.78);
+        box-shadow: 0 20px 46px rgba(0, 0, 0, 0.36);
+        padding: 24px;
+      }
+      h1, h2, h3, h4, h5, h6 {
+        line-height: 1.3;
+        margin-top: 1.2em;
+        margin-bottom: 0.45em;
+      }
+      h1:first-child {
+        margin-top: 0;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        font-size: 0.92em;
+        background: rgba(78, 113, 153, 0.16);
+        border: 1px solid rgba(130, 162, 196, 0.18);
+        border-radius: 6px;
+        padding: 0.08em 0.34em;
+      }
+      pre {
+        overflow-x: auto;
+        padding: 12px;
+        border-radius: 10px;
+        background: rgba(8, 14, 22, 0.92);
+        border: 1px solid rgba(130, 162, 196, 0.24);
+      }
+      pre code {
+        background: transparent;
+        border: none;
+        padding: 0;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 12px 0;
+        font-size: 13px;
+      }
+      th, td {
+        border: 1px solid rgba(125, 158, 194, 0.22);
+        padding: 8px 10px;
+        vertical-align: top;
+      }
+      th {
+        background: rgba(59, 101, 148, 0.28);
+        text-align: left;
+      }
+      blockquote {
+        margin: 10px 0;
+        border-left: 3px solid rgba(126, 200, 255, 0.7);
+        padding: 0 0 0 12px;
+        color: #b9ccdf;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid rgba(125, 158, 194, 0.22);
+        margin: 18px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="row">
+        <div class="brand">CloudStudio Docs</div>
+        <div><a href="/">Back to app</a></div>
+      </div>
+    </div>
+    <main class="page">
+      <div class="path">${safePath}</div>
+      <article class="doc">${html}</article>
+    </main>
+  </body>
+</html>`;
+}
+
+let APP_BRANDING = Object.freeze({
   login: parseBrandingEnv(process.env.CLOUDSTUDIO_BRAND_LOGIN, {
     name: 'CloudStudio',
     initials: 'CS'
@@ -173,133 +374,188 @@ const APP_BRANDING = Object.freeze({
   })
 });
 
-const BILLING_AUTO_SYNC_INTERVAL_MS = Math.max(
-  60 * 60 * 1000,
-  Number(process.env.BILLING_AUTO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
-);
-const BILLING_AUTO_SYNC_ENABLED = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.BILLING_AUTO_SYNC_ENABLED || 'true').trim().toLowerCase()
-);
-const BILLING_AUTO_SYNC_STARTUP_RUN = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.BILLING_AUTO_SYNC_RUN_ON_STARTUP || 'true').trim().toLowerCase()
-);
-const BILLING_AUTO_SYNC_ONLY_MISSING = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.BILLING_AUTO_SYNC_ONLY_MISSING || 'true').trim().toLowerCase()
-);
-const BILLING_AUTO_SYNC_LOOKBACK_MONTHS = Math.max(
-  1,
-  Math.min(120, Number(process.env.BILLING_AUTO_SYNC_LOOKBACK_MONTHS || 24))
-);
-const BILLING_AUTO_SYNC_MISSING_DELAY_MS = Math.max(
-  0,
-  Math.min(12_000, Number(process.env.BILLING_AUTO_SYNC_MISSING_DELAY_MS || 1200))
-);
-const BILLING_STARTUP_MISSING_BACKFILL_ENABLED = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.BILLING_STARTUP_BACKFILL_MISSING_ENABLED || 'true').trim().toLowerCase()
-);
-const BILLING_STARTUP_MISSING_BACKFILL_MONTHS = Math.max(
-  1,
-  Math.min(120, Number(process.env.BILLING_STARTUP_BACKFILL_MISSING_MONTHS || 12))
-);
-const BILLING_STARTUP_MISSING_BACKFILL_DELAY_MS = Math.max(
-  0,
-  Math.min(12_000, Number(process.env.BILLING_STARTUP_BACKFILL_DELAY_MS || 1200))
-);
-const CLOUD_METRICS_SYNC_INTERVAL_MS = Math.max(
-  60_000,
-  Number(process.env.CLOUD_METRICS_SYNC_INTERVAL_MS || 5 * 60 * 1000)
-);
-const CLOUD_METRICS_SYNC_ENABLED = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.CLOUD_METRICS_SYNC_ENABLED || 'true').trim().toLowerCase()
-);
-const CLOUD_METRICS_AZURE_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_AZURE, true);
-const CLOUD_METRICS_AWS_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_AWS, true);
-const CLOUD_METRICS_RACKSPACE_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_RACKSPACE, true);
-const CLOUD_METRICS_SYNC_STARTUP_RUN = !['0', 'false', 'no', 'off'].includes(
-  String(process.env.CLOUD_METRICS_SYNC_RUN_ON_STARTUP || 'true').trim().toLowerCase()
-);
-const CLOUD_METRICS_SYNC_STARTUP_DELAY_MS = Math.max(
-  0,
-  Math.min(10 * 60 * 1000, Number(process.env.CLOUD_METRICS_SYNC_STARTUP_DELAY_MS || 15_000))
-);
-const CLOUD_METRICS_AZURE_MAX_RETRIES = Math.max(
-  0,
-  Math.min(10, Number(process.env.CLOUD_METRICS_AZURE_MAX_RETRIES || 4))
-);
-const CLOUD_METRICS_AZURE_TIMEOUT_MS = Math.max(
-  5_000,
-  Math.min(120_000, Number(process.env.CLOUD_METRICS_AZURE_TIMEOUT_MS || 30_000))
-);
-const CLOUD_METRICS_AZURE_CONCURRENCY = Math.max(
-  1,
-  Math.min(24, Number(process.env.CLOUD_METRICS_AZURE_CONCURRENCY || 6))
-);
-const CLOUD_METRICS_AZURE_MAX_RESOURCES = Math.max(
-  1,
-  Math.min(10_000, Number(process.env.CLOUD_METRICS_AZURE_MAX_RESOURCES || 5000))
-);
-const CLOUD_METRICS_AZURE_LOOKBACK_MINUTES = Math.max(
-  5,
-  Math.min(180, Number(process.env.CLOUD_METRICS_AZURE_LOOKBACK_MINUTES || 15))
-);
-const CLOUD_METRICS_AZURE_METRIC_BATCH_SIZE = Math.max(
-  1,
-  Math.min(40, Number(process.env.CLOUD_METRICS_AZURE_METRIC_BATCH_SIZE || 20))
-);
-const CLOUD_METRICS_AZURE_METRIC_BATCH_DELAY_MS = Math.max(
-  0,
-  Math.min(5_000, Number(process.env.CLOUD_METRICS_AZURE_METRIC_BATCH_DELAY_MS || 0))
-);
-const CLOUD_METRICS_AWS_MAX_RETRIES = Math.max(
-  0,
-  Math.min(10, Number(process.env.CLOUD_METRICS_AWS_MAX_RETRIES || 4))
-);
-const CLOUD_METRICS_AWS_CONCURRENCY = Math.max(
-  1,
-  Math.min(24, Number(process.env.CLOUD_METRICS_AWS_CONCURRENCY || 6))
-);
-const CLOUD_METRICS_AWS_LOOKBACK_MINUTES = Math.max(
-  5,
-  Math.min(180, Number(process.env.CLOUD_METRICS_AWS_LOOKBACK_MINUTES || 15))
-);
-const CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT = Math.max(
-  100,
-  Math.min(50_000, Number(process.env.CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT || 5000))
-);
-const CLOUD_METRICS_AWS_NAMESPACES = parseEnvStringList(process.env.CLOUD_METRICS_AWS_NAMESPACES || '');
-const CLOUD_METRICS_AWS_REGIONS = parseEnvStringList(process.env.CLOUD_METRICS_AWS_REGIONS || '', { lowercase: true });
-const CLOUD_METRICS_RACKSPACE_MAX_RETRIES = Math.max(
-  0,
-  Math.min(10, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_RETRIES || 3))
-);
-const CLOUD_METRICS_RACKSPACE_TIMEOUT_MS = Math.max(
-  5_000,
-  Math.min(120_000, Number(process.env.CLOUD_METRICS_RACKSPACE_TIMEOUT_MS || 30_000))
-);
-const CLOUD_METRICS_RACKSPACE_CONCURRENCY = Math.max(
-  1,
-  Math.min(16, Number(process.env.CLOUD_METRICS_RACKSPACE_CONCURRENCY || 4))
-);
-const CLOUD_METRICS_RACKSPACE_PAGE_SIZE = Math.max(
-  10,
-  Math.min(1000, Number(process.env.CLOUD_METRICS_RACKSPACE_PAGE_SIZE || 100))
-);
-const CLOUD_METRICS_RACKSPACE_MAX_ENTITIES = Math.max(
-  1,
-  Math.min(50_000, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_ENTITIES || 5000))
-);
-const CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK = Math.max(
-  1,
-  Math.min(200, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK || 50))
-);
-const CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES = Math.max(
-  5,
-  Math.min(1440, Number(process.env.CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES || 60))
-);
-const CLOUD_METRICS_RACKSPACE_PLOT_POINTS = Math.max(
-  5,
-  Math.min(240, Number(process.env.CLOUD_METRICS_RACKSPACE_PLOT_POINTS || 30))
-);
+let BILLING_AUTO_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let BILLING_AUTO_SYNC_ENABLED = true;
+let BILLING_AUTO_SYNC_STARTUP_RUN = true;
+let BILLING_AUTO_SYNC_ONLY_MISSING = true;
+let BILLING_AUTO_SYNC_LOOKBACK_MONTHS = 24;
+let BILLING_AUTO_SYNC_MISSING_DELAY_MS = 1200;
+let BILLING_STARTUP_MISSING_BACKFILL_ENABLED = true;
+let BILLING_STARTUP_MISSING_BACKFILL_MONTHS = 12;
+let BILLING_STARTUP_MISSING_BACKFILL_DELAY_MS = 1200;
+
+let CLOUD_METRICS_SYNC_INTERVAL_MS = 5 * 60 * 1000;
+let CLOUD_METRICS_SYNC_ENABLED = true;
+let CLOUD_METRICS_AZURE_ENABLED = true;
+let CLOUD_METRICS_AWS_ENABLED = true;
+let CLOUD_METRICS_RACKSPACE_ENABLED = true;
+let CLOUD_METRICS_SYNC_STARTUP_RUN = true;
+let CLOUD_METRICS_SYNC_STARTUP_DELAY_MS = 15_000;
+let CLOUD_METRICS_AZURE_MAX_RETRIES = 4;
+let CLOUD_METRICS_AZURE_TIMEOUT_MS = 30_000;
+let CLOUD_METRICS_AZURE_CONCURRENCY = 6;
+let CLOUD_METRICS_AZURE_MAX_RESOURCES = 5000;
+let CLOUD_METRICS_AZURE_LOOKBACK_MINUTES = 15;
+let CLOUD_METRICS_AZURE_METRIC_BATCH_SIZE = 20;
+let CLOUD_METRICS_AZURE_METRIC_BATCH_DELAY_MS = 0;
+let CLOUD_METRICS_AWS_MAX_RETRIES = 4;
+let CLOUD_METRICS_AWS_CONCURRENCY = 6;
+let CLOUD_METRICS_AWS_LOOKBACK_MINUTES = 15;
+let CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT = 5000;
+let CLOUD_METRICS_AWS_NAMESPACES = [];
+let CLOUD_METRICS_AWS_REGIONS = [];
+let CLOUD_METRICS_RACKSPACE_MAX_RETRIES = 3;
+let CLOUD_METRICS_RACKSPACE_TIMEOUT_MS = 30_000;
+let CLOUD_METRICS_RACKSPACE_CONCURRENCY = 4;
+let CLOUD_METRICS_RACKSPACE_PAGE_SIZE = 100;
+let CLOUD_METRICS_RACKSPACE_MAX_ENTITIES = 5000;
+let CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK = 50;
+let CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES = 60;
+let CLOUD_METRICS_RACKSPACE_PLOT_POINTS = 30;
+
+function refreshRuntimeTunablesFromEnv() {
+  APP_BRANDING = Object.freeze({
+    login: parseBrandingEnv(process.env.CLOUDSTUDIO_BRAND_LOGIN, {
+      name: 'CloudStudio',
+      initials: 'CS'
+    }),
+    main: parseBrandingEnv(process.env.CLOUDSTUDIO_BRAND_MAIN, {
+      name: 'CloudStudio',
+      initials: 'CS'
+    })
+  });
+
+  BILLING_AUTO_SYNC_INTERVAL_MS = Math.max(
+    60 * 60 * 1000,
+    Number(process.env.BILLING_AUTO_SYNC_INTERVAL_MS || 24 * 60 * 60 * 1000)
+  );
+  BILLING_AUTO_SYNC_ENABLED = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.BILLING_AUTO_SYNC_ENABLED || 'true').trim().toLowerCase()
+  );
+  BILLING_AUTO_SYNC_STARTUP_RUN = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.BILLING_AUTO_SYNC_RUN_ON_STARTUP || 'true').trim().toLowerCase()
+  );
+  BILLING_AUTO_SYNC_ONLY_MISSING = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.BILLING_AUTO_SYNC_ONLY_MISSING || 'true').trim().toLowerCase()
+  );
+  BILLING_AUTO_SYNC_LOOKBACK_MONTHS = Math.max(
+    1,
+    Math.min(120, Number(process.env.BILLING_AUTO_SYNC_LOOKBACK_MONTHS || 24))
+  );
+  BILLING_AUTO_SYNC_MISSING_DELAY_MS = Math.max(
+    0,
+    Math.min(12_000, Number(process.env.BILLING_AUTO_SYNC_MISSING_DELAY_MS || 1200))
+  );
+  BILLING_STARTUP_MISSING_BACKFILL_ENABLED = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.BILLING_STARTUP_BACKFILL_MISSING_ENABLED || 'true').trim().toLowerCase()
+  );
+  BILLING_STARTUP_MISSING_BACKFILL_MONTHS = Math.max(
+    1,
+    Math.min(120, Number(process.env.BILLING_STARTUP_BACKFILL_MISSING_MONTHS || 12))
+  );
+  BILLING_STARTUP_MISSING_BACKFILL_DELAY_MS = Math.max(
+    0,
+    Math.min(12_000, Number(process.env.BILLING_STARTUP_BACKFILL_DELAY_MS || 1200))
+  );
+
+  CLOUD_METRICS_SYNC_INTERVAL_MS = Math.max(
+    60_000,
+    Number(process.env.CLOUD_METRICS_SYNC_INTERVAL_MS || 5 * 60 * 1000)
+  );
+  CLOUD_METRICS_SYNC_ENABLED = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.CLOUD_METRICS_SYNC_ENABLED || 'true').trim().toLowerCase()
+  );
+  CLOUD_METRICS_AZURE_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_AZURE, true);
+  CLOUD_METRICS_AWS_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_AWS, true);
+  CLOUD_METRICS_RACKSPACE_ENABLED = parseBooleanEnv(process.env.CLOUD_METRICS_RACKSPACE, true);
+  CLOUD_METRICS_SYNC_STARTUP_RUN = !['0', 'false', 'no', 'off'].includes(
+    String(process.env.CLOUD_METRICS_SYNC_RUN_ON_STARTUP || 'true').trim().toLowerCase()
+  );
+  CLOUD_METRICS_SYNC_STARTUP_DELAY_MS = Math.max(
+    0,
+    Math.min(10 * 60 * 1000, Number(process.env.CLOUD_METRICS_SYNC_STARTUP_DELAY_MS || 15_000))
+  );
+  CLOUD_METRICS_AZURE_MAX_RETRIES = Math.max(
+    0,
+    Math.min(10, Number(process.env.CLOUD_METRICS_AZURE_MAX_RETRIES || 4))
+  );
+  CLOUD_METRICS_AZURE_TIMEOUT_MS = Math.max(
+    5_000,
+    Math.min(120_000, Number(process.env.CLOUD_METRICS_AZURE_TIMEOUT_MS || 30_000))
+  );
+  CLOUD_METRICS_AZURE_CONCURRENCY = Math.max(
+    1,
+    Math.min(24, Number(process.env.CLOUD_METRICS_AZURE_CONCURRENCY || 6))
+  );
+  CLOUD_METRICS_AZURE_MAX_RESOURCES = Math.max(
+    1,
+    Math.min(10_000, Number(process.env.CLOUD_METRICS_AZURE_MAX_RESOURCES || 5000))
+  );
+  CLOUD_METRICS_AZURE_LOOKBACK_MINUTES = Math.max(
+    5,
+    Math.min(180, Number(process.env.CLOUD_METRICS_AZURE_LOOKBACK_MINUTES || 15))
+  );
+  CLOUD_METRICS_AZURE_METRIC_BATCH_SIZE = Math.max(
+    1,
+    Math.min(40, Number(process.env.CLOUD_METRICS_AZURE_METRIC_BATCH_SIZE || 20))
+  );
+  CLOUD_METRICS_AZURE_METRIC_BATCH_DELAY_MS = Math.max(
+    0,
+    Math.min(5_000, Number(process.env.CLOUD_METRICS_AZURE_METRIC_BATCH_DELAY_MS || 0))
+  );
+  CLOUD_METRICS_AWS_MAX_RETRIES = Math.max(
+    0,
+    Math.min(10, Number(process.env.CLOUD_METRICS_AWS_MAX_RETRIES || 4))
+  );
+  CLOUD_METRICS_AWS_CONCURRENCY = Math.max(
+    1,
+    Math.min(24, Number(process.env.CLOUD_METRICS_AWS_CONCURRENCY || 6))
+  );
+  CLOUD_METRICS_AWS_LOOKBACK_MINUTES = Math.max(
+    5,
+    Math.min(180, Number(process.env.CLOUD_METRICS_AWS_LOOKBACK_MINUTES || 15))
+  );
+  CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT = Math.max(
+    100,
+    Math.min(50_000, Number(process.env.CLOUD_METRICS_AWS_MAX_METRICS_PER_ACCOUNT || 5000))
+  );
+  CLOUD_METRICS_AWS_NAMESPACES = parseEnvStringList(process.env.CLOUD_METRICS_AWS_NAMESPACES || '');
+  CLOUD_METRICS_AWS_REGIONS = parseEnvStringList(process.env.CLOUD_METRICS_AWS_REGIONS || '', { lowercase: true });
+  CLOUD_METRICS_RACKSPACE_MAX_RETRIES = Math.max(
+    0,
+    Math.min(10, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_RETRIES || 3))
+  );
+  CLOUD_METRICS_RACKSPACE_TIMEOUT_MS = Math.max(
+    5_000,
+    Math.min(120_000, Number(process.env.CLOUD_METRICS_RACKSPACE_TIMEOUT_MS || 30_000))
+  );
+  CLOUD_METRICS_RACKSPACE_CONCURRENCY = Math.max(
+    1,
+    Math.min(16, Number(process.env.CLOUD_METRICS_RACKSPACE_CONCURRENCY || 4))
+  );
+  CLOUD_METRICS_RACKSPACE_PAGE_SIZE = Math.max(
+    10,
+    Math.min(1000, Number(process.env.CLOUD_METRICS_RACKSPACE_PAGE_SIZE || 100))
+  );
+  CLOUD_METRICS_RACKSPACE_MAX_ENTITIES = Math.max(
+    1,
+    Math.min(50_000, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_ENTITIES || 5000))
+  );
+  CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK = Math.max(
+    1,
+    Math.min(200, Number(process.env.CLOUD_METRICS_RACKSPACE_MAX_METRICS_PER_CHECK || 50))
+  );
+  CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES = Math.max(
+    5,
+    Math.min(1440, Number(process.env.CLOUD_METRICS_RACKSPACE_LOOKBACK_MINUTES || 60))
+  );
+  CLOUD_METRICS_RACKSPACE_PLOT_POINTS = Math.max(
+    5,
+    Math.min(240, Number(process.env.CLOUD_METRICS_RACKSPACE_PLOT_POINTS || 30))
+  );
+}
+
+refreshRuntimeTunablesFromEnv();
 let billingAutoSyncTimer = null;
 let cloudMetricsSyncTimer = null;
 const billingAutoSyncState = {
@@ -328,6 +584,16 @@ const cloudMetricsSyncState = {
   lastProvider: null,
   lastSummary: null
 };
+
+function syncRuntimeStateFlags() {
+  billingAutoSyncState.enabled = BILLING_AUTO_SYNC_ENABLED;
+  billingAutoSyncState.intervalMs = BILLING_AUTO_SYNC_INTERVAL_MS;
+  cloudMetricsSyncState.enabled = CLOUD_METRICS_SYNC_ENABLED;
+  cloudMetricsSyncState.intervalMs = CLOUD_METRICS_SYNC_INTERVAL_MS;
+}
+
+syncRuntimeStateFlags();
+
 const APP_VIEW_SET = new Set(VIEW_KEYS);
 const VIEW_RULES = Object.freeze([
   { prefix: '/apps/storage', view: 'storage' },
@@ -335,8 +601,14 @@ const VIEW_RULES = Object.freeze([
   { prefix: '/apps/ip-address', view: 'ip-address' },
   { prefix: '/apps/billing', view: 'billing' },
   { prefix: '/apps/tag', view: 'tags' },
+  { prefix: '/apps/grafana-cloud', view: 'grafana-cloud' },
+  { prefix: '/apps/firewall', view: 'firewall' },
   { prefix: '/api/platform/overview', view: 'dashboard' },
   { prefix: '/api/platform/cloud-metrics', view: 'cloud-metrics' },
+  { prefix: '/api/platform/cloud-database', view: 'cloud-database' },
+  { prefix: '/api/platform/grafana-cloud', view: 'grafana-cloud' },
+  { prefix: '/api/platform/firewall', view: 'firewall' },
+  { prefix: '/api/platform/vpn', view: 'vpn' },
   { prefix: '/api/platform/utilization', view: 'cloud-metrics' },
   { prefix: '/api/platform/live', view: 'live' },
   { prefix: '/api/platform/security', view: 'security' },
@@ -347,20 +619,33 @@ const VIEW_RULES = Object.freeze([
   { prefix: '/api/billing', view: 'billing' },
   { prefix: '/api/tags', view: 'tags' },
   { prefix: '/api/keys', view: 'admin-api-keys' },
+  { prefix: '/api/admin/app-config', view: 'admin-settings' },
   { prefix: '/api/admin/db-backup', view: 'admin-backup' },
   { prefix: '/api/admin/users', view: 'admin-users' }
 ]);
 const VIEW_LABELS = Object.freeze({
   dashboard: 'Dashboard',
   storage: 'Storage',
+  'storage-unified': 'Storage: Unified',
+  'storage-azure': 'Storage: Azure',
+  'storage-aws': 'Storage: AWS',
+  'storage-gcp': 'Storage: GCP',
+  'storage-wasabi': 'Storage: Wasabi',
+  'storage-vsax': 'Storage: VSAx',
+  'storage-other': 'Storage: Other',
   'ip-address': 'IP Address',
   pricing: 'Pricing',
   billing: 'Billing',
   tags: 'Tags',
   'cloud-metrics': 'Cloud Metrics',
+  'cloud-database': 'Cloud Database',
+  'grafana-cloud': 'Grafana-Cloud',
   live: 'Live View (VSAx)',
+  firewall: 'Firewall',
+  vpn: 'VPN',
   security: 'Security',
   vendors: 'Vendor onboarding',
+  'admin-settings': 'App config',
   'admin-users': 'User access',
   'admin-api-keys': 'API keys',
   'admin-backup': 'Backup',
@@ -400,9 +685,380 @@ function ensureUnifiedEnvDefaults() {
 }
 
 ensureUnifiedEnvDefaults();
-initializeAuth();
-
+const APP_RUNTIME_CONFIG_SETTING_KEY = 'app_runtime_config_v1';
 const DB_BACKUP_UI_SETTING_KEY = 'db_backup_ui_config';
+const APP_CONFIG_SCHEMA_VERSION = 'cloudstudio.app-config.v1';
+const RUNTIME_ENV_OVERRIDE_BLOCKLIST = new Set([
+  'PORT',
+  'CLOUDSTUDIO_PORT',
+  'CLOUDSTUDIO_SECRET_KEY',
+  'CLOUDSTUDIO_DB_FILE',
+  'CLOUDSTUDIO_BRAND_LOGIN',
+  'CLOUDSTUDIO_BRAND_MAIN',
+  'SQLITE_PATH',
+  'AUTH_DB_FILE',
+  'APP_AUTH_USERS',
+  'APP_LOGIN_USER',
+  'APP_LOGIN_PASSWORD',
+  'APP_ADMIN_USERS'
+]);
+const RUNTIME_ENV_SEED_PREFIXES = Object.freeze([
+  'AWS_',
+  'AZURE_',
+  'GCP_',
+  'GOOGLE_',
+  'RACKSPACE_',
+  'CHECKMK_',
+  'CLOUDFLARE_',
+  'GRAFANA_',
+  'WASABI_',
+  'BILLING_',
+  'CLOUD_METRICS_',
+  'PRICING_',
+  'VSAX_',
+  'DB_BACKUP_',
+  'LOG_',
+  'CACHE_',
+  'SECURITY_',
+  'ACCOUNT_',
+  'AUTH_'
+]);
+const RUNTIME_ENV_KEY_PATTERN = /^[A-Z][A-Z0-9_]{1,127}$/;
+const STRICT_JSON_ENV_OVERRIDE_RULES = Object.freeze({
+  AWS_ACCOUNTS_JSON: 'array',
+  WASABI_ACCOUNTS_JSON: 'array'
+});
+const ENV_UNSET_SENTINEL = Symbol('env-unset');
+const runtimeEnvOriginalValues = new Map();
+let runtimeOverrideKeys = new Set();
+let appRuntimeConfig = null;
+
+function normalizeRuntimeEnvKey(keyRaw) {
+  const key = String(keyRaw || '')
+    .trim()
+    .toUpperCase();
+  if (!key || !RUNTIME_ENV_KEY_PATTERN.test(key) || RUNTIME_ENV_OVERRIDE_BLOCKLIST.has(key)) {
+    return '';
+  }
+  return key;
+}
+
+function normalizeRuntimeEnvOverrides(input = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const normalized = {};
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    const key = normalizeRuntimeEnvKey(rawKey);
+    if (!key) {
+      continue;
+    }
+    const value = String(rawValue === null || rawValue === undefined ? '' : rawValue).trim();
+    if (!value) {
+      continue;
+    }
+    normalized[key] = value;
+  }
+  return Object.fromEntries(Object.entries(normalized).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function isValidRuntimeJsonOverrideValue(key, value) {
+  const mode = STRICT_JSON_ENV_OVERRIDE_RULES[String(key || '').trim().toUpperCase()];
+  if (!mode) {
+    return true;
+  }
+
+  const normalized = normalizeJsonEnvValue(value);
+  if (!normalized) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(normalized);
+    if (mode === 'array') {
+      return Array.isArray(parsed);
+    }
+    return parsed !== null && typeof parsed === 'object';
+  } catch (_error) {
+    return false;
+  }
+}
+
+function normalizeRuntimeJsonOverrideValue(key, value) {
+  const mode = STRICT_JSON_ENV_OVERRIDE_RULES[String(key || '').trim().toUpperCase()];
+  if (!mode) {
+    return String(value === null || value === undefined ? '' : value).trim();
+  }
+
+  const normalized = normalizeJsonEnvValue(value);
+  if (!normalized) {
+    return '';
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(normalized);
+  } catch (_error) {
+    return '';
+  }
+
+  if (mode === 'array' && !Array.isArray(parsed)) {
+    return '';
+  }
+  if (mode !== 'array' && (parsed === null || typeof parsed !== 'object')) {
+    return '';
+  }
+
+  return JSON.stringify(parsed);
+}
+
+function sanitizeRuntimeEnvOverrides(nextOverrides = {}, previousOverrides = {}) {
+  const sanitized = { ...(nextOverrides && typeof nextOverrides === 'object' ? nextOverrides : {}) };
+  const prior = previousOverrides && typeof previousOverrides === 'object' ? previousOverrides : {};
+
+  function resolveStrictJsonFallbackValue(key) {
+    const candidates = [];
+    const priorValue = String(prior[key] || '').trim();
+    if (priorValue) {
+      candidates.push(priorValue);
+    }
+
+    const currentEnvValue = String(process.env[key] || '').trim();
+    if (currentEnvValue) {
+      candidates.push(currentEnvValue);
+    }
+
+    if (runtimeEnvOriginalValues.has(key)) {
+      const originalValue = runtimeEnvOriginalValues.get(key);
+      if (originalValue !== undefined && originalValue !== null && originalValue !== ENV_UNSET_SENTINEL) {
+        const normalizedOriginalValue = String(originalValue).trim();
+        if (normalizedOriginalValue) {
+          candidates.push(normalizedOriginalValue);
+        }
+      }
+    }
+
+    for (const candidate of candidates) {
+      if (!isValidRuntimeJsonOverrideValue(key, candidate)) {
+        continue;
+      }
+      const normalized = normalizeRuntimeJsonOverrideValue(key, candidate);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return '';
+  }
+
+  for (const key of Object.keys(STRICT_JSON_ENV_OVERRIDE_RULES)) {
+    if (!Object.prototype.hasOwnProperty.call(sanitized, key)) {
+      const fallback = resolveStrictJsonFallbackValue(key);
+      if (fallback) {
+        sanitized[key] = fallback;
+      }
+      continue;
+    }
+
+    if (isValidRuntimeJsonOverrideValue(key, sanitized[key])) {
+      const normalizedCurrent = normalizeRuntimeJsonOverrideValue(key, sanitized[key]);
+      if (normalizedCurrent) {
+        sanitized[key] = normalizedCurrent;
+      }
+      continue;
+    }
+
+    const fallback = resolveStrictJsonFallbackValue(key);
+    if (fallback) {
+      sanitized[key] = fallback;
+      console.warn(`[app-config] Ignoring invalid runtime override for ${key}; preserved last valid value.`);
+      continue;
+    }
+
+    delete sanitized[key];
+    console.warn(`[app-config] Ignoring invalid runtime override for ${key}; no valid fallback available.`);
+  }
+
+  return Object.fromEntries(Object.entries(sanitized).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function shouldSeedRuntimeEnvOverrideKey(keyRaw) {
+  const key = String(keyRaw || '').trim().toUpperCase();
+  if (!key || RUNTIME_ENV_OVERRIDE_BLOCKLIST.has(key)) {
+    return false;
+  }
+  return RUNTIME_ENV_SEED_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
+function buildSeedRuntimeEnvOverridesFromProcessEnv() {
+  const overrides = {};
+  for (const [key, rawValue] of Object.entries(process.env || {})) {
+    if (!shouldSeedRuntimeEnvOverrideKey(key)) {
+      continue;
+    }
+    const value = String(rawValue || '').trim();
+    if (!value) {
+      continue;
+    }
+    overrides[key] = value;
+  }
+  return normalizeRuntimeEnvOverrides(overrides);
+}
+
+function normalizeBrandingConfig(input, fallback = {}) {
+  const source = input && typeof input === 'object' ? input : {};
+  const fallbackName = String(fallback.name || 'CloudStudio').trim() || 'CloudStudio';
+  const fallbackInitials = String(fallback.initials || '').trim() || deriveBrandInitials(fallbackName, 'CS');
+  const name = String(source.name || '').trim() || fallbackName;
+  const initials = String(source.initials || '')
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 8);
+  return {
+    name,
+    initials: initials || deriveBrandInitials(name, fallbackInitials)
+  };
+}
+
+function buildDefaultRuntimeConfigFromEnv() {
+  return {
+    branding: {
+      login: parseBrandingEnv(process.env.CLOUDSTUDIO_BRAND_LOGIN, { name: 'CloudStudio', initials: 'CS' }),
+      main: parseBrandingEnv(process.env.CLOUDSTUDIO_BRAND_MAIN, { name: 'CloudStudio', initials: 'CS' })
+    },
+    envOverrides: {}
+  };
+}
+
+function normalizeRuntimeConfig(input = {}, existing = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const prior = existing && typeof existing === 'object' && !Array.isArray(existing) ? existing : {};
+  const defaults = buildDefaultRuntimeConfigFromEnv();
+  const priorBranding = prior.branding && typeof prior.branding === 'object' ? prior.branding : {};
+  const sourceBranding = source.branding && typeof source.branding === 'object' ? source.branding : {};
+  const sourceEnvRaw =
+    source.envOverrides && typeof source.envOverrides === 'object' && !Array.isArray(source.envOverrides)
+      ? source.envOverrides
+      : source.env && typeof source.env === 'object' && !Array.isArray(source.env)
+        ? source.env
+        : null;
+  let envOverrides =
+    sourceEnvRaw !== null
+      ? normalizeRuntimeEnvOverrides(sourceEnvRaw)
+      : normalizeRuntimeEnvOverrides(prior.envOverrides || defaults.envOverrides);
+
+  envOverrides = sanitizeRuntimeEnvOverrides(envOverrides, prior.envOverrides || defaults.envOverrides || {});
+
+  return {
+    branding: {
+      login: normalizeBrandingConfig(sourceBranding.login, priorBranding.login || defaults.branding.login),
+      main: normalizeBrandingConfig(sourceBranding.main, priorBranding.main || defaults.branding.main)
+    },
+    envOverrides
+  };
+}
+
+function applyRuntimeEnvOverrides(overrides = {}) {
+  const next = normalizeRuntimeEnvOverrides(overrides);
+  const nextKeys = new Set(Object.keys(next));
+
+  for (const key of runtimeOverrideKeys) {
+    if (nextKeys.has(key)) {
+      continue;
+    }
+    const original = runtimeEnvOriginalValues.get(key);
+    if (original === undefined || original === ENV_UNSET_SENTINEL) {
+      delete process.env[key];
+    } else {
+      process.env[key] = original;
+    }
+  }
+
+  for (const [key, value] of Object.entries(next)) {
+    if (!runtimeEnvOriginalValues.has(key)) {
+      if (Object.prototype.hasOwnProperty.call(process.env, key)) {
+        runtimeEnvOriginalValues.set(key, process.env[key]);
+      } else {
+        runtimeEnvOriginalValues.set(key, ENV_UNSET_SENTINEL);
+      }
+    }
+    process.env[key] = value;
+  }
+
+  runtimeOverrideKeys = nextKeys;
+  return next;
+}
+
+function loadStoredRuntimeConfig() {
+  const row = getAppSetting(APP_RUNTIME_CONFIG_SETTING_KEY);
+  if (!row?.value || typeof row.value !== 'object') {
+    return null;
+  }
+  const encrypted = String(row.value?.ciphertext || '').trim();
+  let payload = row.value;
+  if (encrypted) {
+    payload = decryptJson(encrypted);
+  }
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+  return normalizeRuntimeConfig(payload, {});
+}
+
+function saveStoredRuntimeConfig(input = {}, existing = {}) {
+  const normalized = normalizeRuntimeConfig(input, existing);
+  const ciphertext = encryptJson(normalized);
+  if (!ciphertext) {
+    throw new Error('Could not encrypt app runtime config.');
+  }
+  upsertAppSetting(APP_RUNTIME_CONFIG_SETTING_KEY, { ciphertext });
+  return normalized;
+}
+
+function toPublicRuntimeConfig(input = {}) {
+  return normalizeRuntimeConfig(input, {});
+}
+
+function applyRuntimeConfig(input = {}, options = {}) {
+  const existing = appRuntimeConfig || buildDefaultRuntimeConfigFromEnv();
+  const normalized = normalizeRuntimeConfig(input, existing);
+  const appliedEnvOverrides = applyRuntimeEnvOverrides(normalized.envOverrides);
+  process.env.CLOUDSTUDIO_BRAND_LOGIN = JSON.stringify(normalized.branding.login);
+  process.env.CLOUDSTUDIO_BRAND_MAIN = JSON.stringify(normalized.branding.main);
+  refreshRuntimeTunablesFromEnv();
+  syncRuntimeStateFlags();
+  appRuntimeConfig = {
+    ...normalized,
+    envOverrides: appliedEnvOverrides
+  };
+
+  if (options.reloadSchedulers) {
+    stopBillingAutoSync();
+    startBillingAutoSync();
+    stopCloudMetricsSync();
+    startCloudMetricsSync();
+    if (dbBackupScheduler && typeof dbBackupScheduler.reloadConfig === 'function') {
+      dbBackupScheduler.reloadConfig(options.reason || 'runtime-config-update');
+    }
+  }
+
+  return appRuntimeConfig;
+}
+
+const storedRuntimeConfig = loadStoredRuntimeConfig();
+let bootstrapRuntimeConfig = storedRuntimeConfig || null;
+if (!bootstrapRuntimeConfig) {
+  bootstrapRuntimeConfig = normalizeRuntimeConfig(
+    {
+      branding: buildDefaultRuntimeConfigFromEnv().branding,
+      envOverrides: buildSeedRuntimeEnvOverridesFromProcessEnv()
+    },
+    {}
+  );
+  saveStoredRuntimeConfig(bootstrapRuntimeConfig, {});
+}
+appRuntimeConfig = applyRuntimeConfig(bootstrapRuntimeConfig, {
+  reloadSchedulers: false
+});
+initializeAuth();
 
 function parseBooleanConfig(value, fallback = false) {
   if (value === undefined || value === null || value === '') {
@@ -598,7 +1254,21 @@ function normalizeProvider(value) {
   if (v === 'wasabi-wacm') {
     return 'wasabi';
   }
-  if (['azure', 'aws', 'gcp', 'rackspace', 'private', 'wasabi', 'wasabi-main', 'vsax', 'other'].includes(v)) {
+  if (
+    [
+      'azure',
+      'aws',
+      'gcp',
+      'grafana-cloud',
+      'sendgrid',
+      'rackspace',
+      'private',
+      'wasabi',
+      'wasabi-main',
+      'vsax',
+      'other'
+    ].includes(v)
+  ) {
     return v;
   }
   return 'other';
@@ -606,6 +1276,42 @@ function normalizeProvider(value) {
 
 function normalizeCloudType(value) {
   return String(value || '').trim().toLowerCase() === 'private' ? 'private' : 'public';
+}
+
+function parseOptionalBoolean(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+    return false;
+  }
+  return null;
+}
+
+function getVendorHiddenFlag(input = {}) {
+  const hiddenDirect = parseOptionalBoolean(input.hidden);
+  if (hiddenDirect !== null) {
+    return hiddenDirect;
+  }
+  const metadata = input?.metadata && typeof input.metadata === 'object' && !Array.isArray(input.metadata) ? input.metadata : null;
+  if (!metadata) {
+    return null;
+  }
+  return parseOptionalBoolean(metadata.hidden);
+}
+
+function isVendorHidden(vendor = {}) {
+  return getVendorHiddenFlag(vendor) === true;
 }
 
 function parseVendorPayload(body = {}) {
@@ -619,6 +1325,7 @@ function parseVendorPayload(body = {}) {
     accountId: body.accountId ? String(body.accountId).trim() : null,
     projectId: body.projectId ? String(body.projectId).trim() : null,
     metadata: body.metadata && typeof body.metadata === 'object' ? body.metadata : {},
+    hidden: getVendorHiddenFlag(body),
     credentials: body.credentials && typeof body.credentials === 'object' ? body.credentials : null
   };
 }
@@ -638,6 +1345,7 @@ function toPublicVendor(vendor) {
     accountId: vendor.accountId,
     projectId: vendor.projectId,
     hasCredentials: Boolean(vendor.credentialsEncrypted),
+    hidden: isVendorHidden(vendor),
     metadata: vendor.metadata || {},
     createdAt: vendor.createdAt,
     updatedAt: vendor.updatedAt
@@ -700,6 +1408,60 @@ function normalizeVendorImportEntries(payload) {
     return [source];
   }
   return [];
+}
+
+function buildAppConfigExportPayload() {
+  const vendors = listVendors()
+    .map((vendor) => toVendorExportRecord(getVendorById(vendor.id)))
+    .filter(Boolean);
+  const runtimeConfig = normalizeRuntimeConfig(appRuntimeConfig || buildDefaultRuntimeConfigFromEnv(), {});
+  const backupConfig = normalizeDbBackupUiConfig(loadStoredDbBackupUiConfig() || dbBackupUiConfig || {}, {});
+  return {
+    schemaVersion: APP_CONFIG_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    runtimeConfig,
+    dbBackupConfig: backupConfig,
+    vendors,
+    metadata: {
+      source: 'CloudStudio',
+      version: 'v1'
+    }
+  };
+}
+
+function normalizeAppConfigImportPayload(payload = {}) {
+  let source = payload;
+  if (
+    source &&
+    typeof source === 'object' &&
+    !Array.isArray(source) &&
+    Object.prototype.hasOwnProperty.call(source, 'payload')
+  ) {
+    source = source.payload;
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    return {
+      runtimeConfig: null,
+      dbBackupConfig: null,
+      vendors: []
+    };
+  }
+
+  const runtimeConfig =
+    source.runtimeConfig && typeof source.runtimeConfig === 'object' && !Array.isArray(source.runtimeConfig)
+      ? source.runtimeConfig
+      : null;
+  const dbBackupConfig =
+    source.dbBackupConfig && typeof source.dbBackupConfig === 'object' && !Array.isArray(source.dbBackupConfig)
+      ? source.dbBackupConfig
+      : null;
+  const vendors = normalizeVendorImportEntries(source.vendors || source.vendorConfig || source.vendorConfigs || []);
+
+  return {
+    runtimeConfig,
+    dbBackupConfig,
+    vendors
+  };
 }
 
 function requireApiKey(req, res, next) {
@@ -790,6 +1552,14 @@ function getBillingBaseUrl() {
 
 function getTagBaseUrl() {
   return managedServices.getServiceBaseUrl('tag');
+}
+
+function getGrafanaCloudBaseUrl() {
+  return managedServices.getServiceBaseUrl('grafanaCloud');
+}
+
+function getFirewallBaseUrl() {
+  return managedServices.getServiceBaseUrl('firewall');
 }
 
 async function fetchStorage(pathname, options, timeoutMs) {
@@ -906,6 +1676,38 @@ async function fetchBillingRaw(pathname, options, timeoutMs) {
 
 async function fetchTag(pathname, options, timeoutMs) {
   const basePath = getTagBaseUrl();
+  const requestOptions = options || {};
+  return fetchJsonWithTimeout(
+    `http://127.0.0.1:${port}${basePath}${pathname}`,
+    {
+      ...requestOptions,
+      headers: {
+        [INTERNAL_API_TOKEN_HEADER]: internalApiToken,
+        ...(requestOptions.headers || {})
+      }
+    },
+    timeoutMs
+  );
+}
+
+async function fetchGrafanaCloud(pathname, options, timeoutMs) {
+  const basePath = getGrafanaCloudBaseUrl();
+  const requestOptions = options || {};
+  return fetchJsonWithTimeout(
+    `http://127.0.0.1:${port}${basePath}${pathname}`,
+    {
+      ...requestOptions,
+      headers: {
+        [INTERNAL_API_TOKEN_HEADER]: internalApiToken,
+        ...(requestOptions.headers || {})
+      }
+    },
+    timeoutMs
+  );
+}
+
+async function fetchFirewall(pathname, options, timeoutMs) {
+  const basePath = getFirewallBaseUrl();
   const requestOptions = options || {};
   return fetchJsonWithTimeout(
     `http://127.0.0.1:${port}${basePath}${pathname}`,
@@ -1483,41 +2285,12 @@ function normalizeAwsCloudMetricsAccount(rawAccount = {}, index = 0) {
 }
 
 function parseAwsAccountsFromEnv() {
-  const raw = String(process.env.AWS_ACCOUNTS_JSON || '').trim();
-  let accounts = [];
-
-  if (raw) {
-    try {
-      const parsed = JSON.parse(raw);
-      const rows = Array.isArray(parsed) ? parsed : parsed && typeof parsed === 'object' ? Object.values(parsed) : [];
-      accounts = rows.map((row, index) => normalizeAwsCloudMetricsAccount(row, index)).filter(Boolean);
-    } catch (_error) {
-      accounts = [];
-    }
-  }
-
-  if (!accounts.length) {
-    const fallback = normalizeAwsCloudMetricsAccount(
-      {
-        accountId: process.env.AWS_DEFAULT_ACCOUNT_ID || 'aws-default',
-        displayName: process.env.AWS_DEFAULT_ACCOUNT_LABEL || 'AWS',
-        accessKeyId: process.env.AWS_DEFAULT_ACCESS_KEY_ID || process.env.AWS_ACCESS_KEY_ID || '',
-        secretAccessKey: process.env.AWS_DEFAULT_SECRET_ACCESS_KEY || process.env.AWS_SECRET_ACCESS_KEY || '',
-        sessionToken: process.env.AWS_DEFAULT_SESSION_TOKEN || process.env.AWS_SESSION_TOKEN || '',
-        region: process.env.AWS_DEFAULT_REGION || 'us-east-1',
-        cloudWatchRegion: process.env.AWS_DEFAULT_CLOUDWATCH_REGION || process.env.AWS_DEFAULT_REGION || 'us-east-1',
-        metricRegions:
-          process.env.CLOUD_METRICS_AWS_REGIONS ||
-          process.env.AWS_DEFAULT_CLOUDWATCH_REGION ||
-          process.env.AWS_DEFAULT_REGION ||
-          'us-east-1'
-      },
-      0
-    );
-    if (fallback) {
-      accounts = [fallback];
-    }
-  }
+  const accounts = getAwsAccountConfigs({
+    includeEnvFallback: true,
+    includeProfileOnly: false
+  })
+    .map((row, index) => normalizeAwsCloudMetricsAccount(row, index))
+    .filter(Boolean);
 
   const deduped = new Map();
   for (const account of accounts) {
@@ -1677,7 +2450,7 @@ function isRackspaceCloudMetricsAvailable() {
 }
 
 function parseWasabiAccountsFromEnv() {
-  const raw = String(process.env.WASABI_ACCOUNTS_JSON || '').trim();
+  const raw = normalizeJsonEnvValue(process.env.WASABI_ACCOUNTS_JSON || '');
   if (!raw) {
     return [];
   }
@@ -3821,6 +4594,32 @@ function buildCloudMetricsView(providerRaw = 'azure') {
   };
 }
 
+function normalizeCloudDatabaseSyncProvider(providerRaw = 'all') {
+  const provider = normalizeCloudDatabaseProvider(providerRaw, 'all');
+  if (provider === 'all') {
+    return 'all';
+  }
+  if (provider === 'azure' || provider === 'aws' || provider === 'rackspace') {
+    return provider;
+  }
+  return 'all';
+}
+
+function buildCloudDatabaseView(providerRaw = 'all') {
+  const provider = normalizeCloudDatabaseProvider(providerRaw, 'all');
+  const rows = listCloudMetricsLatest({
+    limit: 25_000
+  });
+  const payload = buildCloudDatabaseViewFromCloudMetrics(rows, {
+    provider,
+    generatedAt: toIsoNow()
+  });
+  return {
+    ...payload,
+    syncStatus: getCloudMetricsSyncStatus()
+  };
+}
+
 function buildForwardQueryString(query = {}) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query || {})) {
@@ -4309,13 +5108,20 @@ async function buildOverviewView() {
       pricing: getPriceBaseUrl(),
       billing: getBillingBaseUrl(),
       tag: getTagBaseUrl(),
-      cloudMetrics: '/api/platform/cloud-metrics'
+      grafanaCloud: getGrafanaCloudBaseUrl(),
+      firewall: getFirewallBaseUrl(),
+      vpn: getFirewallBaseUrl(),
+      cloudMetrics: '/api/platform/cloud-metrics',
+      cloudDatabase: '/api/platform/cloud-database'
     }
   };
 }
 
 function shouldBypassAuth(req) {
   if (req.path === '/login' || req.path === '/favicon.ico') {
+    return true;
+  }
+  if (req.path === '/docs' || req.path === '/docs/' || req.path.startsWith('/docs/')) {
     return true;
   }
   if (req.path === '/api' || req.path === '/api/') {
@@ -4348,8 +5154,35 @@ function normalizeViewName(value) {
   if (raw === 'utilization' || raw === 'cloudmetrics') {
     return 'cloud-metrics';
   }
+  if (raw === 'clouddatabase') {
+    return 'cloud-database';
+  }
+  if (raw === 'grafanacloud') {
+    return 'grafana-cloud';
+  }
   if (raw === 'billing-backfill') {
     return 'billing';
+  }
+  if (raw === 'storageunified') {
+    return 'storage-unified';
+  }
+  if (raw === 'storageazure') {
+    return 'storage-azure';
+  }
+  if (raw === 'storageaws') {
+    return 'storage-aws';
+  }
+  if (raw === 'storagegcp') {
+    return 'storage-gcp';
+  }
+  if (raw === 'storagewasabi') {
+    return 'storage-wasabi';
+  }
+  if (raw === 'storagevsax') {
+    return 'storage-vsax';
+  }
+  if (raw === 'storageother') {
+    return 'storage-other';
   }
   return raw;
 }
@@ -4375,6 +5208,20 @@ function hasUserViewAccess(user, viewNameRaw) {
   const viewName = normalizeViewName(viewNameRaw);
   if (!viewName || !APP_VIEW_SET.has(viewName)) {
     return false;
+  }
+  if (viewName === 'storage') {
+    if (hasViewAccess(user, 'storage')) {
+      return true;
+    }
+    return [
+      'storage-unified',
+      'storage-azure',
+      'storage-aws',
+      'storage-gcp',
+      'storage-wasabi',
+      'storage-vsax',
+      'storage-other'
+    ].some((providerView) => hasViewAccess(user, providerView));
   }
   return hasViewAccess(user, viewName);
 }
@@ -4441,7 +5288,7 @@ function parseAllowedViewsPayload(raw, options = {}) {
   if (isAdmin) {
     return [...VIEW_KEYS];
   }
-  const adminOnlyViews = new Set(['vendors', 'admin-users', 'admin-api-keys', 'admin-backup']);
+  const adminOnlyViews = new Set(['vendors', 'admin-settings', 'admin-users', 'admin-api-keys', 'admin-backup']);
   const nonAdmin = values.filter((view) => !adminOnlyViews.has(view));
   if (!nonAdmin.length) {
     return null;
@@ -4493,6 +5340,95 @@ app.post('/api/auth/logout', (req, res) => {
   return res.json({
     authenticated: false,
     user: null
+  });
+});
+
+app.get('/api/admin/app-config', requireAdmin, (_req, res) => {
+  return res.json({
+    schemaVersion: APP_CONFIG_SCHEMA_VERSION,
+    runtimeConfig: toPublicRuntimeConfig(appRuntimeConfig || buildDefaultRuntimeConfigFromEnv()),
+    dbBackupConfig: toPublicDbBackupUiConfig(dbBackupUiConfig || {}),
+    billingAutoSync: getBillingAutoSyncStatus(),
+    cloudMetrics: getCloudMetricsServiceHealth(),
+    dbBackup: dbBackupScheduler.getStatus()
+  });
+});
+
+app.put('/api/admin/app-config', requireAdmin, (req, res) => {
+  const rawInput =
+    req.body && typeof req.body === 'object' && req.body.runtimeConfig && typeof req.body.runtimeConfig === 'object'
+      ? req.body.runtimeConfig
+      : req.body && typeof req.body === 'object' && req.body.config && typeof req.body.config === 'object'
+        ? req.body.config
+        : req.body || {};
+  const merged = normalizeRuntimeConfig(rawInput, appRuntimeConfig || buildDefaultRuntimeConfigFromEnv());
+  const saved = saveStoredRuntimeConfig(merged, appRuntimeConfig || buildDefaultRuntimeConfigFromEnv());
+  applyRuntimeConfig(saved, {
+    reloadSchedulers: true,
+    reason: 'admin-app-config-save'
+  });
+
+  return res.json({
+    ok: true,
+    runtimeConfig: toPublicRuntimeConfig(appRuntimeConfig || saved),
+    billingAutoSync: getBillingAutoSyncStatus(),
+    cloudMetrics: getCloudMetricsServiceHealth(),
+    dbBackup: dbBackupScheduler.getStatus()
+  });
+});
+
+app.get('/api/admin/app-config/export', requireAdmin, (_req, res) => {
+  return res.json(buildAppConfigExportPayload());
+});
+
+app.post('/api/admin/app-config/import', requireAdmin, async (req, res) => {
+  const parsed = normalizeAppConfigImportPayload(req.body || {});
+  let runtimeApplied = false;
+  let backupApplied = false;
+  let vendorsImported = null;
+
+  if (parsed.runtimeConfig) {
+    const saved = saveStoredRuntimeConfig(parsed.runtimeConfig, appRuntimeConfig || buildDefaultRuntimeConfigFromEnv());
+    applyRuntimeConfig(saved, {
+      reloadSchedulers: true,
+      reason: 'admin-app-config-import'
+    });
+    runtimeApplied = true;
+  }
+
+  if (parsed.dbBackupConfig) {
+    const merged = normalizeDbBackupUiConfig(parsed.dbBackupConfig, dbBackupUiConfig || {});
+    dbBackupUiConfig = saveStoredDbBackupUiConfig(merged);
+    dbBackupScheduler.reloadConfig('admin-app-config-import');
+    backupApplied = true;
+  }
+
+  if (parsed.vendors.length) {
+    vendorsImported = await fetchJsonWithTimeout(
+      `http://127.0.0.1:${port}/api/vendors/import`,
+      {
+        method: 'POST',
+        headers: {
+          [INTERNAL_API_TOKEN_HEADER]: internalApiToken
+        },
+        body: JSON.stringify({
+          vendors: parsed.vendors
+        })
+      },
+      180_000
+    );
+  }
+
+  return res.json({
+    ok: true,
+    runtimeApplied,
+    backupApplied,
+    vendorImport: vendorsImported,
+    runtimeConfig: toPublicRuntimeConfig(appRuntimeConfig || buildDefaultRuntimeConfigFromEnv()),
+    dbBackupConfig: toPublicDbBackupUiConfig(dbBackupUiConfig || {}),
+    billingAutoSync: getBillingAutoSyncStatus(),
+    cloudMetrics: getCloudMetricsServiceHealth(),
+    dbBackup: dbBackupScheduler.getStatus()
   });
 });
 
@@ -4705,7 +5641,13 @@ app.get(
     '/apps/billing',
     '/apps/billing/',
     '/apps/tag',
-    '/apps/tag/'
+    '/apps/tag/',
+    '/apps/cloud-database',
+    '/apps/cloud-database/',
+    '/apps/grafana-cloud',
+    '/apps/grafana-cloud/',
+    '/apps/firewall',
+    '/apps/firewall/'
   ],
   (_req, res) => {
     res.redirect('/');
@@ -4739,7 +5681,11 @@ app.get('/api/services', (_req, res) => {
       ipAddress: getIpAddressBaseUrl(),
       billing: getBillingBaseUrl(),
       tag: getTagBaseUrl(),
-      cloudMetrics: '/api/platform/cloud-metrics'
+      grafanaCloud: getGrafanaCloudBaseUrl(),
+      firewall: getFirewallBaseUrl(),
+      vpn: getFirewallBaseUrl(),
+      cloudMetrics: '/api/platform/cloud-metrics',
+      cloudDatabase: '/api/platform/cloud-database'
     }
   });
 });
@@ -4860,7 +5806,10 @@ app.post('/api/ip-map/discovery/inherit', handleIpAddressDiscoveryInherit);
 app.get('/api/ip-map/export/csv', handleIpAddressExportCsv);
 
 app.get('/api/vendors', (_req, res) => {
-  const vendors = listVendors();
+  const vendors = listVendors().map((vendor) => ({
+    ...vendor,
+    hidden: isVendorHidden(vendor)
+  }));
   res.json({
     vendors,
     total: vendors.length
@@ -4933,6 +5882,13 @@ app.post('/api/vendors/import', (req, res) => {
 
     const targetId = existingMatched?.id || candidateId || undefined;
     const existingRecord = targetId ? getVendorById(targetId) : null;
+    const metadata = {
+      ...(existingRecord?.metadata && typeof existingRecord.metadata === 'object' ? existingRecord.metadata : {}),
+      ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+    };
+    if (payload.hidden !== null) {
+      metadata.hidden = payload.hidden;
+    }
     const credentialsEncrypted =
       source.credentials && typeof source.credentials === 'object'
         ? encryptJson(source.credentials)
@@ -4949,7 +5905,7 @@ app.post('/api/vendors/import', (req, res) => {
       subscriptionId: payload.subscriptionId,
       accountId: payload.accountId,
       projectId: payload.projectId,
-      metadata: payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {},
+      metadata,
       credentialsEncrypted
     });
 
@@ -4995,6 +5951,13 @@ app.post('/api/vendors/:vendorId/import', (req, res) => {
   const source = entries[0] && typeof entries[0] === 'object' ? entries[0] : {};
   const payload = parseVendorPayload(source);
 
+  const metadata = {
+    ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+    ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+  };
+  if (payload.hidden !== null) {
+    metadata.hidden = payload.hidden;
+  }
   const credentialsEncrypted =
     source.credentials && typeof source.credentials === 'object'
       ? encryptJson(source.credentials)
@@ -5011,10 +5974,7 @@ app.post('/api/vendors/:vendorId/import', (req, res) => {
     subscriptionId: payload.subscriptionId !== null ? payload.subscriptionId : existing.subscriptionId,
     accountId: payload.accountId !== null ? payload.accountId : existing.accountId,
     projectId: payload.projectId !== null ? payload.projectId : existing.projectId,
-    metadata:
-      payload.metadata && typeof payload.metadata === 'object' && Object.keys(payload.metadata).length
-        ? payload.metadata
-        : existing.metadata || {},
+    metadata,
     credentialsEncrypted
   });
 
@@ -5029,9 +5989,14 @@ app.post('/api/vendors', (req, res) => {
   if (!payload.name) {
     return res.status(400).json({ error: 'Vendor name is required.' });
   }
+  const metadata = payload.metadata && typeof payload.metadata === 'object' ? { ...payload.metadata } : {};
+  if (payload.hidden !== null) {
+    metadata.hidden = payload.hidden;
+  }
 
   const saved = upsertVendor({
     ...payload,
+    metadata,
     credentialsEncrypted: payload.credentials ? encryptJson(payload.credentials) : null
   });
 
@@ -5050,6 +6015,13 @@ app.put('/api/vendors/:vendorId', (req, res) => {
   }
 
   const payload = parseVendorPayload(req.body || {});
+  const metadata = {
+    ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+    ...(payload.metadata && typeof payload.metadata === 'object' ? payload.metadata : {})
+  };
+  if (payload.hidden !== null) {
+    metadata.hidden = payload.hidden;
+  }
   const updated = upsertVendor({
     id: vendorId,
     name: payload.name || existing.name,
@@ -5059,7 +6031,7 @@ app.put('/api/vendors/:vendorId', (req, res) => {
     subscriptionId: payload.subscriptionId !== null ? payload.subscriptionId : existing.subscriptionId,
     accountId: payload.accountId !== null ? payload.accountId : existing.accountId,
     projectId: payload.projectId !== null ? payload.projectId : existing.projectId,
-    metadata: { ...(existing.metadata || {}), ...(payload.metadata || {}) },
+    metadata,
     credentialsEncrypted:
       payload.credentials && typeof payload.credentials === 'object'
         ? encryptJson(payload.credentials)
@@ -5368,6 +6340,14 @@ registerCloudMetricsRoutes(app, {
   runSync: async (provider) => runCloudMetricsSync('manual', { provider })
 });
 
+registerCloudDatabaseRoutes(app, {
+  includePlatformRoutes: true,
+  includePublicRoutes: false,
+  getDefaultProvider: () => 'all',
+  buildView: (provider) => buildCloudDatabaseView(provider),
+  runSync: async (provider) => runCloudMetricsSync('manual', { provider: normalizeCloudDatabaseSyncProvider(provider) })
+});
+
 app.get('/api/platform/live', async (req, res, next) => {
   try {
     const groupNames = parseStringValues(req.query?.groupNames ?? req.query?.groupName ?? []);
@@ -5414,6 +6394,106 @@ app.post('/api/platform/pricing/compare', async (req, res, next) => {
   }
 });
 
+app.get('/api/platform/grafana-cloud/vendors', async (_req, res, next) => {
+  try {
+    const payload = await fetchGrafanaCloud('/api/vendors');
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/platform/grafana-cloud/status', async (_req, res, next) => {
+  try {
+    const payload = await fetchGrafanaCloud('/api/status');
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/platform/grafana-cloud/daily-ingest', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchGrafanaCloud(`/api/daily-ingest${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/platform/grafana-cloud/sync', async (req, res, next) => {
+  try {
+    const payload = await fetchGrafanaCloud('/api/sync', {
+      method: 'POST',
+      body: JSON.stringify(req.body || {})
+    }, 120_000);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/platform/firewall/status', async (_req, res, next) => {
+  try {
+    const payload = await fetchFirewall('/api/status');
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/platform/firewall', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchFirewall(`/api/firewalls${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/platform/firewall/sync', async (req, res, next) => {
+  try {
+    const payload = await fetchFirewall(
+      '/api/sync',
+      {
+        method: 'POST',
+        body: JSON.stringify(req.body || {})
+      },
+      180_000
+    );
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/platform/vpn', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchFirewall(`/api/vpn${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.put('/api/platform/vpn/metadata', async (req, res, next) => {
+  try {
+    const payload = await fetchFirewall('/api/vpn/metadata', {
+      method: 'PUT',
+      body: JSON.stringify(req.body || {})
+    });
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.use('/api/public', requireApiKey);
 
 app.get('/api/public/overview', async (_req, res, next) => {
@@ -5435,6 +6515,57 @@ app.get('/api/public/billing', async (req, res, next) => {
   }
 });
 
+app.get('/api/public/grafana-cloud/vendors', async (_req, res, next) => {
+  try {
+    const payload = await fetchGrafanaCloud('/api/vendors');
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/public/grafana-cloud/status', async (_req, res, next) => {
+  try {
+    const payload = await fetchGrafanaCloud('/api/status');
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/public/grafana-cloud/daily-ingest', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchGrafanaCloud(`/api/daily-ingest${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/public/firewall', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchFirewall(`/api/firewalls${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/public/vpn', async (req, res, next) => {
+  try {
+    const queryString = buildForwardQueryString(req.query || {});
+    const suffix = queryString ? `?${queryString}` : '';
+    const payload = await fetchFirewall(`/api/vpn${suffix}`);
+    res.json(payload);
+  } catch (error) {
+    next(error);
+  }
+});
+
 registerCloudMetricsRoutes(app, {
   includePlatformRoutes: false,
   includePublicRoutes: true,
@@ -5444,12 +6575,91 @@ registerCloudMetricsRoutes(app, {
   runSync: async (provider) => runCloudMetricsSync('manual', { provider })
 });
 
+registerCloudDatabaseRoutes(app, {
+  includePlatformRoutes: false,
+  includePublicRoutes: true,
+  getDefaultProvider: () => 'all',
+  buildView: (provider) => buildCloudDatabaseView(provider),
+  runSync: async (provider) => runCloudMetricsSync('manual', { provider: normalizeCloudDatabaseSyncProvider(provider) })
+});
+
 app.get('/api/public/security', async (_req, res, next) => {
   try {
     res.json(await buildSecurityView());
   } catch (error) {
     next(error);
   }
+});
+
+app.get(['/docs', '/docs/'], (_req, res) => {
+  let files = [];
+  try {
+    files = fs
+      .readdirSync(docsDir, { withFileTypes: true })
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith('.md'))
+      .map((entry) => entry.name)
+      .sort((a, b) => a.localeCompare(b));
+  } catch (_error) {
+    files = [];
+  }
+
+  const content = `
+<h1>CloudStudio Docs</h1>
+<p>Select a document:</p>
+${
+  files.length
+    ? `<ul>${files
+        .map((name) => `<li><a href="/docs/${encodeURIComponent(name)}">${escapeHtml(name)}</a></li>`)
+        .join('')}</ul>`
+    : '<p>No docs found.</p>'
+}
+  `.trim();
+
+  return res.status(200).type('html').send(
+    renderMarkdownPage({
+      title: 'CloudStudio Docs',
+      relativePath: '/docs',
+      html: content
+    })
+  );
+});
+
+app.get(/^\/docs\/(.+\.md)$/i, (req, res, next) => {
+  const requestedPath = req.params && req.params[0] ? String(req.params[0]) : '';
+  const absolutePath = resolveDocsFilePath(requestedPath);
+  if (!absolutePath) {
+    return res.status(400).send('Invalid docs path.');
+  }
+
+  let stat = null;
+  try {
+    stat = fs.statSync(absolutePath);
+  } catch (_error) {
+    stat = null;
+  }
+  if (!stat || !stat.isFile()) {
+    return next();
+  }
+
+  let markdownSource = '';
+  try {
+    markdownSource = fs.readFileSync(absolutePath, 'utf8');
+  } catch (error) {
+    return res.status(500).send(error?.message || 'Failed to load markdown file.');
+  }
+
+  const title = extractMarkdownTitle(markdownSource, path.basename(absolutePath));
+  const html = markdown.render(markdownSource);
+  return res
+    .status(200)
+    .type('html')
+    .send(
+      renderMarkdownPage({
+        title,
+        relativePath: `/docs/${requestedPath}`,
+        html
+      })
+    );
 });
 
 app.use(express.static(publicDir));

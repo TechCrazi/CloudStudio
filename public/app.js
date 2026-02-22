@@ -5,6 +5,9 @@ const state = {
   vendors: {
     importTargetId: null
   },
+  overviewBilling: {
+    rangePreset: 'last_month'
+  },
   billing: {
     accounts: [],
     providerTotals: [],
@@ -21,6 +24,7 @@ const state = {
     typeResourceFilter: 'all',
     typeTagFilter: 'all',
     typeSort: 'amount_desc',
+    accountSort: 'provider_asc',
     searchText: '',
     navExpanded: false,
     snapshotsCollapsed: true,
@@ -30,6 +34,10 @@ const state = {
     budgetRows: [],
     budgetSupportedTargets: ['account', 'org', 'product']
   },
+  tags: {
+    rows: [],
+    searchText: ''
+  },
   cloudMetrics: {
     providers: [],
     selectedProvider: 'azure',
@@ -38,14 +46,56 @@ const state = {
     expandedResourceKeys: [],
     syncStatus: null
   },
+  cloudDatabase: {
+    providers: [],
+    selectedProvider: 'all',
+    rows: [],
+    filteredRows: [],
+    expandedRowKeys: [],
+    searchText: '',
+    summary: null,
+    syncStatus: null,
+    lastSyncAt: null
+  },
+  grafanaCloud: {
+    vendors: [],
+    selectedVendorId: 'all',
+    rangePreset: 'month_to_date',
+    periodStart: '',
+    periodEnd: '',
+    rows: [],
+    summary: null,
+    details: null,
+    sync: null
+  },
   live: {
     rows: [],
     filteredRows: [],
     availableGroups: [],
     selectedGroupName: 'all',
     pinnedGroupName: null,
+    groupSearchText: '',
     searchText: '',
     navExpanded: false
+  },
+  storage: {
+    navExpanded: false,
+    selectedProvider: 'unified'
+  },
+  firewall: {
+    hosts: [],
+    services: [],
+    issueRows: [],
+    hostFilter: 'all',
+    searchText: '',
+    sync: null,
+    config: null
+  },
+  vpn: {
+    rows: [],
+    hostFilter: 'all',
+    searchText: '',
+    sortBy: 'status'
   },
   storageEmbed: {
     initialized: false,
@@ -68,23 +118,81 @@ const state = {
     navExpanded: false,
     users: [],
     viewCatalog: [],
-    editingUsername: null
+    editingUsername: null,
+    runtimeConfig: null
   }
 };
 
 const ACTIVE_VIEW_STORAGE_KEY = 'cloudstudio_active_view';
 const BILLING_SCOPE_STORAGE_KEY = 'cloudstudio_billing_scope';
 const BILLING_PRESET_STORAGE_KEY = 'cloudstudio_billing_preset';
+const OVERVIEW_BILLING_PRESET_STORAGE_KEY = 'cloudstudio_overview_billing_preset';
 const BILLING_NAV_EXPANDED_STORAGE_KEY = 'cloudstudio_billing_nav_expanded';
+const STORAGE_NAV_EXPANDED_STORAGE_KEY = 'cloudstudio_storage_nav_expanded';
+const STORAGE_NAV_PROVIDER_STORAGE_KEY = 'cloudstudio_storage_provider';
 const BILLING_SEARCH_STORAGE_KEY = 'cloudstudio_billing_search';
+const BILLING_ACCOUNT_SORT_STORAGE_KEY = 'cloudstudio_billing_account_sort';
 const ADMIN_NAV_EXPANDED_STORAGE_KEY = 'cloudstudio_admin_nav_expanded';
 const BILLING_SNAPSHOTS_COLLAPSED_STORAGE_KEY = 'cloudstudio_billing_snapshots_collapsed';
 const BILLING_TREND_COLLAPSED_STORAGE_KEY = 'cloudstudio_billing_trend_collapsed';
 const CLOUD_METRICS_PROVIDER_STORAGE_KEY = 'cloudstudio_cloud_metrics_provider';
+const CLOUD_DATABASE_PROVIDER_STORAGE_KEY = 'cloudstudio_cloud_database_provider';
+const CLOUD_DATABASE_SEARCH_STORAGE_KEY = 'cloudstudio_cloud_database_search';
+const GRAFANA_CLOUD_PRESET_STORAGE_KEY = 'cloudstudio_grafana_cloud_preset';
 const LIVE_GROUP_STORAGE_KEY = 'cloudstudio_live_group';
+const LIVE_GROUP_SEARCH_STORAGE_KEY = 'cloudstudio_live_group_search';
 const LIVE_SEARCH_STORAGE_KEY = 'cloudstudio_live_search';
 const LIVE_NAV_EXPANDED_STORAGE_KEY = 'cloudstudio_live_nav_expanded';
 const LIVE_PINNED_GROUP_STORAGE_KEY = 'cloudstudio_live_pinned_group';
+const FIREWALL_SEARCH_STORAGE_KEY = 'cloudstudio_firewall_search';
+const FIREWALL_HOST_STORAGE_KEY = 'cloudstudio_firewall_host';
+const VPN_SEARCH_STORAGE_KEY = 'cloudstudio_vpn_search';
+const VPN_HOST_STORAGE_KEY = 'cloudstudio_vpn_host';
+const VPN_SORT_STORAGE_KEY = 'cloudstudio_vpn_sort';
+
+function normalizeStorageNavUserKey(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase();
+}
+
+function getUserScopedLocalStorageKey(baseKey, userKey = state.authUser?.username) {
+  const key = String(baseKey || '').trim();
+  if (!key) {
+    return '';
+  }
+  const normalizedUserKey = normalizeStorageNavUserKey(userKey);
+  if (!normalizedUserKey) {
+    return key;
+  }
+  return `${key}.${normalizedUserKey}`;
+}
+
+function readUserScopedLocalStorage(baseKey, options = {}) {
+  const fallbackToLegacy = options.fallbackToLegacy !== false;
+  const scopedKey = getUserScopedLocalStorageKey(baseKey);
+  try {
+    const scopedValue = localStorage.getItem(scopedKey);
+    if (scopedValue !== null && scopedValue !== undefined) {
+      return scopedValue;
+    }
+    if (fallbackToLegacy && scopedKey !== baseKey) {
+      return localStorage.getItem(baseKey);
+    }
+  } catch (_error) {
+    // Ignore storage read errors.
+  }
+  return null;
+}
+
+function writeUserScopedLocalStorage(baseKey, value) {
+  const scopedKey = getUserScopedLocalStorageKey(baseKey);
+  try {
+    localStorage.setItem(scopedKey, value);
+  } catch (_error) {
+    // Ignore storage write errors.
+  }
+}
 
 const dom = {
   menuBtn: document.getElementById('menuBtn'),
@@ -95,6 +203,9 @@ const dom = {
   adminNavBtn: document.getElementById('adminNavBtn'),
   adminNavChevron: document.getElementById('adminNavChevron'),
   adminNavGroup: document.getElementById('adminNavGroup'),
+  storageNavBtn: document.getElementById('storageNavBtn'),
+  storageNavChevron: document.getElementById('storageNavChevron'),
+  storageNavGroup: document.getElementById('storageNavGroup'),
   billingNavBtn: document.getElementById('billingNavBtn'),
   billingNavChevron: document.getElementById('billingNavChevron'),
   liveNavBtn: document.getElementById('liveNavBtn'),
@@ -108,6 +219,7 @@ const dom = {
   logoutBtn: document.getElementById('logoutBtn'),
   overviewBillingPanel: document.getElementById('overviewBillingPanel'),
   overviewBillingTitle: document.getElementById('overviewBillingTitle'),
+  overviewBillingRangePresets: document.getElementById('overviewBillingRangePresets'),
   overviewBillingCards: document.getElementById('overviewBillingCards'),
   overviewBillingOrgHint: document.getElementById('overviewBillingOrgHint'),
   overviewBillingOrgCards: document.getElementById('overviewBillingOrgCards'),
@@ -149,6 +261,7 @@ const dom = {
   billingTypeTagFilter: document.getElementById('billingTypeTagFilter'),
   billingSearchInput: document.getElementById('billingSearchInput'),
   billingTypeSort: document.getElementById('billingTypeSort'),
+  billingAccountSort: document.getElementById('billingAccountSort'),
   toggleBillingSnapshotsBtn: document.getElementById('toggleBillingSnapshotsBtn'),
   billingSnapshotsWrap: document.getElementById('billingSnapshotsWrap'),
   startBillingBackfillBtn: document.getElementById('startBillingBackfillBtn'),
@@ -171,15 +284,55 @@ const dom = {
   cloudMetricsProviderTabs: document.getElementById('cloudMetricsProviderTabs'),
   cloudMetricsScopeHint: document.getElementById('cloudMetricsScopeHint'),
   cloudMetricsTypeBody: document.getElementById('cloudMetricsTypeBody'),
+  refreshCloudDatabaseBtn: document.getElementById('refreshCloudDatabaseBtn'),
+  syncCloudDatabaseBtn: document.getElementById('syncCloudDatabaseBtn'),
+  cloudDatabaseSyncStatus: document.getElementById('cloudDatabaseSyncStatus'),
+  cloudDatabaseProviderTabs: document.getElementById('cloudDatabaseProviderTabs'),
+  cloudDatabaseSearchInput: document.getElementById('cloudDatabaseSearchInput'),
+  clearCloudDatabaseFiltersBtn: document.getElementById('clearCloudDatabaseFiltersBtn'),
+  cloudDatabaseScopeHint: document.getElementById('cloudDatabaseScopeHint'),
+  cloudDatabaseSummaryCards: document.getElementById('cloudDatabaseSummaryCards'),
+  cloudDatabaseBody: document.getElementById('cloudDatabaseBody'),
+  refreshGrafanaCloudBtn: document.getElementById('refreshGrafanaCloudBtn'),
+  syncGrafanaCloudBtn: document.getElementById('syncGrafanaCloudBtn'),
+  grafanaCloudSyncStatus: document.getElementById('grafanaCloudSyncStatus'),
+  grafanaCloudRangePresets: document.getElementById('grafanaCloudRangePresets'),
+  grafanaCloudVendorFilter: document.getElementById('grafanaCloudVendorFilter'),
+  grafanaCloudRangeStart: document.getElementById('grafanaCloudRangeStart'),
+  grafanaCloudRangeEnd: document.getElementById('grafanaCloudRangeEnd'),
+  grafanaCloudSummaryCards: document.getElementById('grafanaCloudSummaryCards'),
+  grafanaCloudScopeHint: document.getElementById('grafanaCloudScopeHint'),
+  grafanaCloudDetailsHint: document.getElementById('grafanaCloudDetailsHint'),
+  grafanaCloudProductCards: document.getElementById('grafanaCloudProductCards'),
+  grafanaCloudMetricsBody: document.getElementById('grafanaCloudMetricsBody'),
+  grafanaCloudDimensionBody: document.getElementById('grafanaCloudDimensionBody'),
+  grafanaCloudDailyBody: document.getElementById('grafanaCloudDailyBody'),
   refreshLiveBtn: document.getElementById('refreshLiveBtn'),
   liveSearchInput: document.getElementById('liveSearchInput'),
   liveGroupFilterWrap: document.getElementById('liveGroupFilterWrap'),
+  liveGroupSearchInput: document.getElementById('liveGroupSearchInput'),
   liveGroupFilter: document.getElementById('liveGroupFilter'),
   clearLiveFiltersBtn: document.getElementById('clearLiveFiltersBtn'),
   liveScopeHint: document.getElementById('liveScopeHint'),
   liveBody: document.getElementById('liveBody'),
+  syncFirewallBtn: document.getElementById('syncFirewallBtn'),
+  refreshFirewallBtn: document.getElementById('refreshFirewallBtn'),
+  firewallSearchInput: document.getElementById('firewallSearchInput'),
+  firewallHostFilter: document.getElementById('firewallHostFilter'),
+  firewallSyncStatus: document.getElementById('firewallSyncStatus'),
+  firewallCards: document.getElementById('firewallCards'),
+  firewallSummaryBody: document.getElementById('firewallSummaryBody'),
+  firewallIssuesBody: document.getElementById('firewallIssuesBody'),
+  refreshVpnBtn: document.getElementById('refreshVpnBtn'),
+  vpnSearchInput: document.getElementById('vpnSearchInput'),
+  vpnHostFilter: document.getElementById('vpnHostFilter'),
+  vpnSortSelect: document.getElementById('vpnSortSelect'),
+  clearVpnFiltersBtn: document.getElementById('clearVpnFiltersBtn'),
+  vpnScopeHint: document.getElementById('vpnScopeHint'),
+  vpnBody: document.getElementById('vpnBody'),
   syncAwsTagsBtn: document.getElementById('syncAwsTagsBtn'),
   refreshTagsBtn: document.getElementById('refreshTagsBtn'),
+  tagsSearchInput: document.getElementById('tagsSearchInput'),
   tagsBody: document.getElementById('tagsBody'),
   ipMapInput: document.getElementById('ipMapInput'),
   ipMapStatus: document.getElementById('ipMapStatus'),
@@ -191,6 +344,18 @@ const dom = {
   ipDiscoveryBody: document.getElementById('ipDiscoveryBody'),
   ipDiscoveryStatus: document.getElementById('ipDiscoveryStatus'),
   refreshAdminUsersBtn: document.getElementById('refreshAdminUsersBtn'),
+  refreshAppConfigBtn: document.getElementById('refreshAppConfigBtn'),
+  appConfigForm: document.getElementById('appConfigForm'),
+  appConfigLoginBrandName: document.getElementById('appConfigLoginBrandName'),
+  appConfigLoginBrandInitials: document.getElementById('appConfigLoginBrandInitials'),
+  appConfigMainBrandName: document.getElementById('appConfigMainBrandName'),
+  appConfigMainBrandInitials: document.getElementById('appConfigMainBrandInitials'),
+  appConfigEnvOverrides: document.getElementById('appConfigEnvOverrides'),
+  saveAppConfigBtn: document.getElementById('saveAppConfigBtn'),
+  exportAppConfigBtn: document.getElementById('exportAppConfigBtn'),
+  importAppConfigBtn: document.getElementById('importAppConfigBtn'),
+  importAppConfigInput: document.getElementById('importAppConfigInput'),
+  appConfigStatus: document.getElementById('appConfigStatus'),
   adminUserForm: document.getElementById('adminUserForm'),
   adminUserFormTitle: document.getElementById('adminUserFormTitle'),
   adminUserFormStatus: document.getElementById('adminUserFormStatus'),
@@ -237,9 +402,14 @@ const VIEW_LABELS = {
   billing: 'Billing',
   tags: 'Tags',
   'cloud-metrics': 'Cloud Metrics',
+  'cloud-database': 'Cloud Database',
+  'grafana-cloud': 'Grafana-Cloud',
   live: 'Live View (VSAx)',
+  firewall: 'Firewall',
+  vpn: 'VPN',
   security: 'Security',
   vendors: 'Vendor onboarding',
+  'admin-settings': 'App config',
   'admin-users': 'User access',
   'admin-api-keys': 'API keys',
   'admin-backup': 'Backup',
@@ -249,6 +419,8 @@ const PROVIDER_DISPLAY_LABELS = Object.freeze({
   azure: 'AZURE',
   aws: 'AWS',
   gcp: 'GCP',
+  sendgrid: 'SENDGRID',
+  'grafana-cloud': 'GRAFANA-CLOUD',
   rackspace: 'RACKSPACE',
   wasabi: 'WASABI-WACM',
   'wasabi-wacm': 'WASABI-WACM',
@@ -257,7 +429,7 @@ const PROVIDER_DISPLAY_LABELS = Object.freeze({
   vsax: 'VSAX',
   other: 'OTHER'
 });
-const ADMIN_ONLY_VIEWS = new Set(['vendors', 'admin-users', 'admin-api-keys', 'admin-backup']);
+const ADMIN_ONLY_VIEWS = new Set(['vendors', 'admin-settings', 'admin-users', 'admin-api-keys', 'admin-backup']);
 
 function showToast(message, isError = false) {
   dom.toast.textContent = message;
@@ -344,8 +516,35 @@ function normalizeViewNameForAccess(value) {
   if (text === 'utilization' || text === 'cloudmetrics') {
     return 'cloud-metrics';
   }
+  if (text === 'clouddatabase') {
+    return 'cloud-database';
+  }
+  if (text === 'grafanacloud') {
+    return 'grafana-cloud';
+  }
   if (text === 'billing-backfill' || text === 'billing-budget') {
     return 'billing';
+  }
+  if (text === 'storageunified') {
+    return 'storage-unified';
+  }
+  if (text === 'storageazure') {
+    return 'storage-azure';
+  }
+  if (text === 'storageaws') {
+    return 'storage-aws';
+  }
+  if (text === 'storagegcp') {
+    return 'storage-gcp';
+  }
+  if (text === 'storagewasabi') {
+    return 'storage-wasabi';
+  }
+  if (text === 'storagevsax') {
+    return 'storage-vsax';
+  }
+  if (text === 'storageother') {
+    return 'storage-other';
   }
   return text;
 }
@@ -388,7 +587,22 @@ function hasClientViewAccess(viewName) {
   if (!normalized) {
     return false;
   }
-  return getAllowedViewSet().has(normalized);
+  const allowed = getAllowedViewSet();
+  if (allowed.has(normalized)) {
+    return true;
+  }
+  if (normalized === 'storage') {
+    return [
+      'storage-unified',
+      'storage-azure',
+      'storage-aws',
+      'storage-gcp',
+      'storage-wasabi',
+      'storage-vsax',
+      'storage-other'
+    ].some((providerView) => allowed.has(providerView));
+  }
+  return false;
 }
 
 function getFirstAllowedView() {
@@ -401,18 +615,16 @@ function getFirstAllowedView() {
 }
 
 function applyUserViewAccess() {
-  const allowedViews = getAllowedViewSet();
-
   dom.navItems.forEach((item) => {
     const view = String(item.dataset.view || '').trim();
-    const allowed = allowedViews.has(normalizeViewNameForAccess(view));
+    const allowed = hasClientViewAccess(view);
     item.hidden = !allowed;
     item.style.display = allowed ? '' : 'none';
   });
 
   dom.views.forEach((view) => {
     const viewName = String(view.dataset.view || '').trim();
-    const allowed = allowedViews.has(normalizeViewNameForAccess(viewName));
+    const allowed = hasClientViewAccess(viewName);
     view.hidden = !allowed;
     view.style.display = allowed ? '' : 'none';
   });
@@ -421,6 +633,13 @@ function applyUserViewAccess() {
     dom.billingNavGroup.hidden = dom.billingNavBtn.hidden;
     if (dom.billingNavBtn.hidden) {
       setBillingNavExpanded(false, { persist: false });
+    }
+  }
+
+  if (dom.storageNavBtn && dom.storageNavGroup) {
+    dom.storageNavGroup.hidden = dom.storageNavBtn.hidden;
+    if (dom.storageNavBtn.hidden) {
+      setStorageNavExpanded(false, { persist: false });
     }
   }
 
@@ -443,6 +662,7 @@ function applyUserViewAccess() {
     }
   }
 
+  renderStorageNavGroup();
   applyIpAddressWriteAccess();
 }
 
@@ -534,6 +754,37 @@ function formatPercent(value) {
     return '-';
   }
   return `${formatScaledNumber(numeric)}%`;
+}
+
+function formatSignedPercent(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '-';
+  }
+  const prefix = numeric > 0 ? '+' : numeric < 0 ? '-' : '';
+  return `${prefix}${formatScaledNumber(Math.abs(numeric))}%`;
+}
+
+function isGrafanaDetailMetricRow(row = {}) {
+  return Boolean(row?.raw && typeof row.raw === 'object' && row.raw.isDetailMetric);
+}
+
+function formatGrafanaMetricValue(value, kind = 'usage', unit = null, currency = 'USD') {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '-';
+  }
+  if (String(kind || '').trim().toLowerCase() === 'cost') {
+    return formatCurrency(numeric, currency);
+  }
+  const normalizedUnit = String(unit || '').trim().toLowerCase();
+  if (['tib', 'tb', 'gb', 'mb', 'kb', 'b'].includes(normalizedUnit)) {
+    return `${formatScaledNumber(numeric)} ${normalizedUnit.toUpperCase()}`;
+  }
+  if (['series', 'users', 'hours', 'host-hours', 'executions'].includes(normalizedUnit)) {
+    return `${formatScaledNumber(numeric)} ${normalizedUnit}`;
+  }
+  return formatScaledNumber(numeric);
 }
 
 function detectCloudMetricKind(unit, metricName = '') {
@@ -927,21 +1178,21 @@ function renderIpDiscoveryTable() {
   const rows = Array.isArray(state.ipDiscovery.rows) ? state.ipDiscovery.rows : [];
   const filteredRows = searchText
     ? rows.filter((row) => {
-        const providers = Array.isArray(row?.providers) ? row.providers.join(' ') : '';
-        const sources = Array.isArray(row?.sources) ? row.sources.join(' ') : '';
-        const sampleRefs = Array.isArray(row?.sampleRefs) ? row.sampleRefs.join(' ') : '';
-        const suggested = String(row?.suggestedServerName || '');
-        const haystack = `${row?.ipAddress || ''} ${suggested} ${providers} ${sources} ${sampleRefs}`.toLowerCase();
-        return haystack.includes(searchText);
-      })
+      const providers = Array.isArray(row?.providers) ? row.providers.join(' ') : '';
+      const sources = Array.isArray(row?.sources) ? row.sources.join(' ') : '';
+      const sampleRefs = Array.isArray(row?.sampleRefs) ? row.sampleRefs.join(' ') : '';
+      const suggested = String(row?.suggestedServerName || '');
+      const haystack = `${row?.ipAddress || ''} ${suggested} ${providers} ${sources} ${sampleRefs}`.toLowerCase();
+      return haystack.includes(searchText);
+    })
     : rows;
 
   if (!filteredRows.length) {
     const emptyLabel = rows.length
       ? 'No rows match the current search.'
       : state.ipDiscovery.loading
-      ? 'Scanning source data...'
-      : 'No unmapped IPs found.';
+        ? 'Scanning source data...'
+        : 'No unmapped IPs found.';
     dom.ipDiscoveryBody.innerHTML = `<tr><td colspan="5" class="muted">${escapeHtml(emptyLabel)}</td></tr>`;
     return;
   }
@@ -973,13 +1224,12 @@ function renderIpDiscoveryTable() {
           <td>${escapeHtml(providers)}</td>
           <td title="${escapeHtml(sources.join(' | '))}">${escapeHtml(sourceText)}</td>
           <td>
-            ${
-              canWrite
-                ? `<button class="btn secondary ip-discovery-inherit-btn js-ip-discovery-inherit" data-ip-address="${escapeHtml(
-                    ipAddress
-                  )}" type="button">Inherit</button>`
-                : '<span class="muted">Read only</span>'
-            }
+            ${canWrite
+          ? `<button class="btn secondary ip-discovery-inherit-btn js-ip-discovery-inherit" data-ip-address="${escapeHtml(
+            ipAddress
+          )}" type="button">Inherit</button>`
+          : '<span class="muted">Read only</span>'
+        }
           </td>
         </tr>
       `;
@@ -1112,6 +1362,22 @@ function saveBillingPreset(preset) {
   }
 }
 
+function readSavedOverviewBillingPreset() {
+  try {
+    return localStorage.getItem(OVERVIEW_BILLING_PRESET_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveOverviewBillingPreset(preset) {
+  try {
+    localStorage.setItem(OVERVIEW_BILLING_PRESET_STORAGE_KEY, String(preset || '').trim().toLowerCase());
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
 function readSavedBillingSearchText() {
   try {
     return String(localStorage.getItem(BILLING_SEARCH_STORAGE_KEY) || '').trim();
@@ -1123,6 +1389,22 @@ function readSavedBillingSearchText() {
 function saveBillingSearchText(searchText) {
   try {
     localStorage.setItem(BILLING_SEARCH_STORAGE_KEY, String(searchText || ''));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedBillingAccountSort() {
+  try {
+    return String(localStorage.getItem(BILLING_ACCOUNT_SORT_STORAGE_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function saveBillingAccountSort(sortValue) {
+  try {
+    localStorage.setItem(BILLING_ACCOUNT_SORT_STORAGE_KEY, String(sortValue || '').trim().toLowerCase());
   } catch (_error) {
     // Ignore storage errors.
   }
@@ -1143,6 +1425,54 @@ function readSavedBillingNavExpanded() {
 function saveBillingNavExpanded(expanded) {
   try {
     localStorage.setItem(BILLING_NAV_EXPANDED_STORAGE_KEY, expanded ? '1' : '0');
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedStorageNavExpanded() {
+  try {
+    const value = readUserScopedLocalStorage(STORAGE_NAV_EXPANDED_STORAGE_KEY, {
+      fallbackToLegacy: false
+    });
+    if (value === null) {
+      return false;
+    }
+    return value === '1';
+  } catch (_error) {
+    return false;
+  }
+}
+
+function saveStorageNavExpanded(expanded) {
+  try {
+    writeUserScopedLocalStorage(STORAGE_NAV_EXPANDED_STORAGE_KEY, expanded ? '1' : '0');
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function normalizeStorageProvider(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return ['unified', 'azure', 'aws', 'gcp', 'wasabi', 'vsax', 'other'].includes(normalized) ? normalized : 'unified';
+}
+
+function readSavedStorageProvider() {
+  try {
+    return normalizeStorageProvider(
+      readUserScopedLocalStorage(STORAGE_NAV_PROVIDER_STORAGE_KEY, {
+        fallbackToLegacy: false
+      })
+    );
+  } catch (_error) {
+    return 'unified';
+  }
+}
+
+function saveStorageProvider(provider) {
+  const normalized = normalizeStorageProvider(provider);
+  try {
+    writeUserScopedLocalStorage(STORAGE_NAV_PROVIDER_STORAGE_KEY, normalized);
   } catch (_error) {
     // Ignore storage errors.
   }
@@ -1224,6 +1554,54 @@ function saveCloudMetricsProvider(provider) {
   }
 }
 
+function readSavedCloudDatabaseProvider() {
+  try {
+    return localStorage.getItem(CLOUD_DATABASE_PROVIDER_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveCloudDatabaseProvider(provider) {
+  try {
+    localStorage.setItem(CLOUD_DATABASE_PROVIDER_STORAGE_KEY, String(provider || '').trim().toLowerCase());
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedCloudDatabaseSearchText() {
+  try {
+    return String(localStorage.getItem(CLOUD_DATABASE_SEARCH_STORAGE_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function saveCloudDatabaseSearchText(searchText) {
+  try {
+    localStorage.setItem(CLOUD_DATABASE_SEARCH_STORAGE_KEY, String(searchText || '').trim());
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedGrafanaCloudPreset() {
+  try {
+    return localStorage.getItem(GRAFANA_CLOUD_PRESET_STORAGE_KEY);
+  } catch (_error) {
+    return null;
+  }
+}
+
+function saveGrafanaCloudPreset(preset) {
+  try {
+    localStorage.setItem(GRAFANA_CLOUD_PRESET_STORAGE_KEY, String(preset || '').trim().toLowerCase());
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
 function normalizeLiveGroupName(value) {
   const normalized = String(value || '').trim();
   return normalized || 'all';
@@ -1279,9 +1657,25 @@ function readSavedLiveSearchText() {
   }
 }
 
+function readSavedLiveGroupSearchText() {
+  try {
+    return String(localStorage.getItem(LIVE_GROUP_SEARCH_STORAGE_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
 function saveLiveSearchText(searchText) {
   try {
     localStorage.setItem(LIVE_SEARCH_STORAGE_KEY, String(searchText || ''));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function saveLiveGroupSearchText(searchText) {
+  try {
+    localStorage.setItem(LIVE_GROUP_SEARCH_STORAGE_KEY, String(searchText || ''));
   } catch (_error) {
     // Ignore storage errors.
   }
@@ -1307,14 +1701,112 @@ function saveLiveNavExpanded(expanded) {
   }
 }
 
-function getLastMonthRange() {
-  const now = new Date();
+function readSavedFirewallSearchText() {
+  try {
+    return String(localStorage.getItem(FIREWALL_SEARCH_STORAGE_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function saveFirewallSearchText(value) {
+  try {
+    localStorage.setItem(FIREWALL_SEARCH_STORAGE_KEY, String(value || ''));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedFirewallHostFilter() {
+  try {
+    return String(localStorage.getItem(FIREWALL_HOST_STORAGE_KEY) || 'all').trim() || 'all';
+  } catch (_error) {
+    return 'all';
+  }
+}
+
+function saveFirewallHostFilter(value) {
+  try {
+    localStorage.setItem(FIREWALL_HOST_STORAGE_KEY, String(value || 'all').trim() || 'all');
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedVpnSearchText() {
+  try {
+    return String(localStorage.getItem(VPN_SEARCH_STORAGE_KEY) || '').trim();
+  } catch (_error) {
+    return '';
+  }
+}
+
+function saveVpnSearchText(value) {
+  try {
+    localStorage.setItem(VPN_SEARCH_STORAGE_KEY, String(value || ''));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function readSavedVpnHostFilter() {
+  try {
+    return String(localStorage.getItem(VPN_HOST_STORAGE_KEY) || 'all').trim() || 'all';
+  } catch (_error) {
+    return 'all';
+  }
+}
+
+function saveVpnHostFilter(value) {
+  try {
+    localStorage.setItem(VPN_HOST_STORAGE_KEY, String(value || 'all').trim() || 'all');
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function normalizeVpnSortValue(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (['status', 'vpn_number', 'gateway', 'host'].includes(normalized)) {
+    return normalized;
+  }
+  return 'status';
+}
+
+function readSavedVpnSort() {
+  try {
+    return normalizeVpnSortValue(localStorage.getItem(VPN_SORT_STORAGE_KEY));
+  } catch (_error) {
+    return 'status';
+  }
+}
+
+function saveVpnSort(value) {
+  try {
+    localStorage.setItem(VPN_SORT_STORAGE_KEY, normalizeVpnSortValue(value));
+  } catch (_error) {
+    // Ignore storage errors.
+  }
+}
+
+function getLastMonthRange(referenceDate = new Date()) {
+  const now = referenceDate;
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const lastMonthStart = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() - 1, 1));
   const lastMonthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth(), 0));
   return {
     periodStart: lastMonthStart.toISOString().slice(0, 10),
     periodEnd: lastMonthEnd.toISOString().slice(0, 10)
+  };
+}
+
+function getMonthToDateRange(referenceDate = new Date()) {
+  const now = referenceDate;
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return {
+    periodStart: monthStart.toISOString().slice(0, 10),
+    periodEnd: today.toISOString().slice(0, 10)
   };
 }
 
@@ -1332,6 +1824,8 @@ function getFullMonthRange(monthCount, referenceDate = new Date()) {
 function getBillingRangeForPreset(preset, referenceDate = new Date()) {
   const normalized = String(preset || '').trim().toLowerCase();
   switch (normalized) {
+    case 'month_to_date':
+      return getMonthToDateRange(referenceDate);
     case '3_months':
       return getFullMonthRange(3, referenceDate);
     case '6_months':
@@ -1350,7 +1844,7 @@ function resolveRangePresetFromValues(periodStart, periodEnd) {
   if (!start || !end) {
     return 'custom';
   }
-  const presets = ['last_month', '3_months', '6_months', '1_year'];
+  const presets = ['month_to_date', 'last_month', '3_months', '6_months', '1_year'];
   for (const preset of presets) {
     const range = getBillingRangeForPreset(preset);
     if (range.periodStart === start && range.periodEnd === end) {
@@ -1381,7 +1875,7 @@ function ensureBillingRangeDefaults() {
     return;
   }
   const savedPreset = String(readSavedBillingPreset() || '').trim().toLowerCase();
-  const preset = ['last_month', '3_months', '6_months', '1_year'].includes(savedPreset)
+  const preset = ['month_to_date', 'last_month', '3_months', '6_months', '1_year'].includes(savedPreset)
     ? savedPreset
     : 'last_month';
   const range = getBillingRangeForPreset(preset);
@@ -1409,6 +1903,12 @@ function resolveViewName(candidate) {
   if (candidate === 'utilization' || candidate === 'cloudmetrics') {
     candidate = 'cloud-metrics';
   }
+  if (candidate === 'clouddatabase') {
+    candidate = 'cloud-database';
+  }
+  if (candidate === 'grafanacloud') {
+    candidate = 'grafana-cloud';
+  }
   if (candidate === 'admin') {
     candidate = 'vendors';
   }
@@ -1424,6 +1924,11 @@ function isBillingRelatedView(viewName) {
   return value === 'billing' || value === 'billing-backfill' || value === 'billing-budget';
 }
 
+function isStorageRelatedView(viewName) {
+  const value = String(viewName || '').trim();
+  return value === 'storage';
+}
+
 function isLiveRelatedView(viewName) {
   const value = String(viewName || '').trim();
   return value === 'live';
@@ -1431,7 +1936,13 @@ function isLiveRelatedView(viewName) {
 
 function isAdminRelatedView(viewName) {
   const value = String(viewName || '').trim();
-  return value === 'vendors' || value === 'admin-users' || value === 'admin-api-keys' || value === 'admin-backup';
+  return (
+    value === 'vendors' ||
+    value === 'admin-settings' ||
+    value === 'admin-users' ||
+    value === 'admin-api-keys' ||
+    value === 'admin-backup'
+  );
 }
 
 function getActiveViewName() {
@@ -1454,6 +1965,24 @@ function setBillingNavExpanded(expanded, options = {}) {
   }
   if (options.persist !== false) {
     saveBillingNavExpanded(next);
+  }
+}
+
+function setStorageNavExpanded(expanded, options = {}) {
+  const canShow = !(dom.storageNavBtn && dom.storageNavBtn.hidden);
+  const next = canShow ? Boolean(expanded) : false;
+  state.storage.navExpanded = next;
+  if (dom.storageNavGroup) {
+    dom.storageNavGroup.classList.toggle('collapsed', !next);
+  }
+  if (dom.storageNavBtn) {
+    dom.storageNavBtn.classList.toggle('nav-open', next);
+  }
+  if (dom.storageNavChevron) {
+    dom.storageNavChevron.textContent = next ? '▾' : '▸';
+  }
+  if (options.persist !== false) {
+    saveStorageNavExpanded(next);
   }
 }
 
@@ -1521,6 +2050,36 @@ function setBillingTrendCollapsed(collapsed, options = {}) {
   if (options.persist !== false) {
     saveBillingTrendCollapsed(next);
   }
+}
+
+function normalizeOverviewBillingPreset(preset) {
+  const normalized = String(preset || '').trim().toLowerCase();
+  return normalized === 'month_to_date' ? 'month_to_date' : 'last_month';
+}
+
+function renderOverviewBillingPresetButtons() {
+  if (!dom.overviewBillingRangePresets) {
+    return;
+  }
+  const activePreset = normalizeOverviewBillingPreset(state.overviewBilling.rangePreset);
+  dom.overviewBillingRangePresets.querySelectorAll('[data-overview-billing-preset]').forEach((button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    const preset = normalizeOverviewBillingPreset(button.dataset.overviewBillingPreset || '');
+    button.classList.toggle('active', preset === activePreset);
+  });
+}
+
+function applyOverviewBillingPreset(preset, options = {}) {
+  const normalized = normalizeOverviewBillingPreset(preset);
+  const changed = normalized !== normalizeOverviewBillingPreset(state.overviewBilling.rangePreset);
+  state.overviewBilling.rangePreset = normalized;
+  renderOverviewBillingPresetButtons();
+  if (options.persist !== false) {
+    saveOverviewBillingPreset(normalized);
+  }
+  return changed;
 }
 
 function renderBillingRangePresetButtons() {
@@ -1741,6 +2300,7 @@ function setActiveView(viewName, options = {}) {
   const preferredView = resolveViewName(viewName);
   const resolvedView = hasClientViewAccess(preferredView) ? preferredView : getFirstAllowedView();
   const billingRelated = isBillingRelatedView(resolvedView);
+  const storageRelated = isStorageRelatedView(resolvedView);
   const liveRelated = isLiveRelatedView(resolvedView);
   const adminRelated = isAdminRelatedView(resolvedView);
 
@@ -1765,6 +2325,9 @@ function setActiveView(viewName, options = {}) {
   if (!billingRelated) {
     setBillingNavExpanded(false);
   }
+  if (!storageRelated) {
+    setStorageNavExpanded(false);
+  }
   if (!liveRelated) {
     setLiveNavExpanded(false);
   }
@@ -1774,12 +2337,15 @@ function setActiveView(viewName, options = {}) {
     setAdminNavExpanded(true);
   }
 
+  renderStorageNavGroup();
   renderLiveNavGroup();
 
   if (resolvedView === 'storage') {
+    setStorageNavExpanded(true);
     void ensureStorageWorkspace().catch((error) => {
       showToast(error.message || 'Storage workspace failed to load.', true);
     });
+    setStorageEmbedProviderPreference(state.storage.selectedProvider, { persist: false });
   }
 
   if (resolvedView === 'pricing') {
@@ -1806,9 +2372,33 @@ function setActiveView(viewName, options = {}) {
     });
   }
 
+  if (resolvedView === 'cloud-database') {
+    void loadCloudDatabase().catch((error) => {
+      showToast(error.message || 'Cloud Database failed to load.', true);
+    });
+  }
+
+  if (resolvedView === 'grafana-cloud') {
+    void loadGrafanaCloud().catch((error) => {
+      showToast(error.message || 'Grafana-Cloud module failed to load.', true);
+    });
+  }
+
   if (resolvedView === 'live') {
     void loadLive({ refresh: true }).catch((error) => {
       showToast(error.message || 'Live View (VSAx) failed to load.', true);
+    });
+  }
+
+  if (resolvedView === 'firewall') {
+    void loadFirewall().catch((error) => {
+      showToast(error.message || 'Firewall module failed to load.', true);
+    });
+  }
+
+  if (resolvedView === 'vpn') {
+    void loadVpn().catch((error) => {
+      showToast(error.message || 'VPN module failed to load.', true);
     });
   }
 
@@ -1821,6 +2411,12 @@ function setActiveView(viewName, options = {}) {
   if (resolvedView === 'admin-users') {
     void loadAdminUsers().catch((error) => {
       showToast(error.message || 'Admin users failed to load.', true);
+    });
+  }
+
+  if (resolvedView === 'admin-settings') {
+    void loadAppConfig().catch((error) => {
+      showToast(error.message || 'App config failed to load.', true);
     });
   }
 
@@ -1905,6 +2501,8 @@ async function loadServices() {
   const ipAddressOk = Boolean(payload.services?.ipAddress?.running);
   const billingOk = Boolean(payload.services?.billing?.running);
   const tagOk = Boolean(payload.services?.tag?.running);
+  const grafanaCloudOk = Boolean(payload.services?.grafanaCloud?.running);
+  const firewallOk = Boolean(payload.services?.firewall?.running);
   const cloudMetricsState = payload.cloudMetrics || payload.services?.cloudMetrics || null;
   const cloudMetricsOk = cloudMetricsState
     ? cloudMetricsState.lastStatus !== 'error' && (cloudMetricsState.configured !== false || cloudMetricsState.enabled === false)
@@ -1915,7 +2513,10 @@ async function loadServices() {
     { label: 'IP Address', isUp: ipAddressOk },
     { label: 'Billing', isUp: billingOk },
     { label: 'Tag', isUp: tagOk },
-    { label: 'Cloud Metrics', isUp: cloudMetricsOk }
+    { label: 'Grafana-Cloud', isUp: grafanaCloudOk },
+    { label: 'Firewall', isUp: firewallOk },
+    { label: 'Cloud Metrics', isUp: cloudMetricsOk },
+    { label: 'Cloud Database', isUp: cloudMetricsOk }
   ]);
 }
 
@@ -2023,7 +2624,7 @@ function renderOverviewBillingOrgTotals(detailRows = [], periodStart = '-', peri
       <article class="card">
         <p class="label">Org totals</p>
         <p class="value">-</p>
-        <p class="muted">No billing line items found for last month.</p>
+        <p class="muted">No billing line items found for selected period.</p>
       </article>
     `;
     return;
@@ -2056,8 +2657,8 @@ function renderOverviewBillingOrgTotals(detailRows = [], periodStart = '-', peri
         <p class="label">${escapeHtml(row.label)}</p>
         <p class="value">${escapeHtml(formatBillingTotalsByCurrency(row.totals))}</p>
         <p class="muted">${escapeHtml(formatNumber(row.lineItemCount))} line item(s) • ${escapeHtml(
-          formatNumber(row.resourceCount)
-        )} resource(s)</p>
+        formatNumber(row.resourceCount)
+      )} resource(s)</p>
       </article>
     `
     )
@@ -2078,7 +2679,7 @@ function renderOverviewBillingProductTotals(detailRows = [], periodStart = '-', 
       <article class="card">
         <p class="label">Product totals</p>
         <p class="value">-</p>
-        <p class="muted">No billing line items found for last month.</p>
+        <p class="muted">No billing line items found for selected period.</p>
       </article>
     `;
     return;
@@ -2111,23 +2712,25 @@ function renderOverviewBillingProductTotals(detailRows = [], periodStart = '-', 
         <p class="label">${escapeHtml(row.label)}</p>
         <p class="value">${escapeHtml(formatBillingTotalsByCurrency(row.totals))}</p>
         <p class="muted">${escapeHtml(formatNumber(row.lineItemCount))} line item(s) • ${escapeHtml(
-          formatNumber(row.resourceCount)
-        )} resource(s)</p>
+        formatNumber(row.resourceCount)
+      )} resource(s)</p>
       </article>
     `
     )
     .join('');
 }
 
-function renderOverviewBillingSummary(accountsPayload = {}, detailsPayload = {}) {
+function renderOverviewBillingSummary(accountsPayload = {}, detailsPayload = {}, options = {}) {
   if (!dom.overviewBillingPanel) {
     return;
   }
 
   const periodStart = String(accountsPayload?.period?.periodStart || '').trim() || getLastMonthRange().periodStart;
   const periodEnd = String(accountsPayload?.period?.periodEnd || '').trim() || getLastMonthRange().periodEnd;
+  const preset = normalizeOverviewBillingPreset(options?.preset || state.overviewBilling.rangePreset);
+  const presetLabel = preset === 'month_to_date' ? 'month-to-date' : 'last month';
   if (dom.overviewBillingTitle) {
-    dom.overviewBillingTitle.textContent = `Provider/account totals (last month: ${periodStart} to ${periodEnd})`;
+    dom.overviewBillingTitle.textContent = `Provider/account totals (${presetLabel}: ${periodStart} to ${periodEnd})`;
   }
 
   const accountRows = Array.isArray(accountsPayload?.accounts) ? accountsPayload.accounts : [];
@@ -2147,7 +2750,7 @@ function renderOverviewBillingSummary(accountsPayload = {}, detailsPayload = {})
         value: formatNumber(accountRows.length)
       },
       {
-        label: 'Last month total',
+        label: preset === 'month_to_date' ? 'Month-to-date total' : 'Last month total',
         value: formatBillingTotalsByCurrency(grandTotals)
       }
     ];
@@ -2202,10 +2805,12 @@ async function loadOverview() {
       dom.overviewBillingPanel.hidden = true;
     } else {
       dom.overviewBillingPanel.hidden = false;
-      const lastMonth = getLastMonthRange();
+      renderOverviewBillingPresetButtons();
+      const overviewPreset = normalizeOverviewBillingPreset(state.overviewBilling.rangePreset);
+      const selectedRange = getBillingRangeForPreset(overviewPreset);
       const query = new URLSearchParams({
-        periodStart: lastMonth.periodStart,
-        periodEnd: lastMonth.periodEnd
+        periodStart: selectedRange.periodStart,
+        periodEnd: selectedRange.periodEnd
       });
       let accountsPayload = null;
       let detailsPayload = null;
@@ -2224,8 +2829,8 @@ async function loadOverview() {
             </article>
           `;
         }
-        renderOverviewBillingOrgTotals([], lastMonth.periodStart, lastMonth.periodEnd);
-        renderOverviewBillingProductTotals([], lastMonth.periodStart, lastMonth.periodEnd);
+        renderOverviewBillingOrgTotals([], selectedRange.periodStart, selectedRange.periodEnd);
+        renderOverviewBillingProductTotals([], selectedRange.periodStart, selectedRange.periodEnd);
         return;
       }
 
@@ -2237,7 +2842,7 @@ async function loadOverview() {
           console.warn('[dashboard] Billing org tags resolve skipped:', error?.message || String(error));
         }
       }
-      renderOverviewBillingSummary(accountsPayload || {}, detailsPayload || {});
+      renderOverviewBillingSummary(accountsPayload || {}, detailsPayload || {}, { preset: overviewPreset });
     }
   }
 }
@@ -2248,6 +2853,34 @@ function parseCredentialsInput(raw) {
     return null;
   }
   return JSON.parse(trimmed);
+}
+
+function isVendorHiddenInClient(vendor = {}) {
+  const parse = (value) => {
+    if (value === undefined || value === null || value === '') {
+      return null;
+    }
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return value !== 0;
+    }
+    const normalized = String(value).trim().toLowerCase();
+    if (['1', 'true', 'yes', 'y', 'on'].includes(normalized)) {
+      return true;
+    }
+    if (['0', 'false', 'no', 'n', 'off'].includes(normalized)) {
+      return false;
+    }
+    return null;
+  };
+  const direct = parse(vendor?.hidden);
+  if (direct !== null) {
+    return direct;
+  }
+  const metadata = vendor?.metadata && typeof vendor.metadata === 'object' && !Array.isArray(vendor.metadata) ? vendor.metadata : {};
+  return parse(metadata.hidden) === true;
 }
 
 function readBillingRangeFromInputs() {
@@ -2291,9 +2924,8 @@ function formatBillingScopeLabel(scope) {
     if (!account) {
       return 'Selected account';
     }
-    return `${getProviderDisplayLabel(account.providerLabel || account.provider || '', 'PROVIDER')} • ${
-      account.accountName || account.accountId || 'Account'
-    }`;
+    return `${getProviderDisplayLabel(account.providerLabel || account.provider || '', 'PROVIDER')} • ${account.accountName || account.accountId || 'Account'
+      }`;
   }
   if (scope.provider) {
     return `${getProviderDisplayLabel(scope.provider, 'PROVIDER')} provider`;
@@ -2588,8 +3220,8 @@ async function applyBillingTagSummaryFilter(tagKey, tagValue, options = {}) {
   state.billing.typeTagFilter = normalizedValue
     ? buildBillingTypeTagFilterValue(normalizedKey, normalizedValue)
     : normalizedKey === 'org'
-    ? 'org_null'
-    : buildBillingTypeTagNullFilterValue(normalizedKey);
+      ? 'org_null'
+      : buildBillingTypeTagNullFilterValue(normalizedKey);
 
   setActiveView('billing');
   await loadBilling();
@@ -2671,8 +3303,8 @@ function renderBillingOrgTotals() {
         <p class="label">${escapeHtml(row.label)}</p>
         <p class="value">${escapeHtml(formatBillingTotalsByCurrency(row.totals))}</p>
         <p class="muted">${escapeHtml(formatNumber(row.lineItemCount))} line item(s) • ${escapeHtml(
-          formatNumber(row.resourceCount)
-        )} resource(s)</p>
+        formatNumber(row.resourceCount)
+      )} resource(s)</p>
       </article>
     `
     )
@@ -2729,8 +3361,8 @@ function renderBillingProductTotals() {
         <p class="label">${escapeHtml(row.label)}</p>
         <p class="value">${escapeHtml(formatBillingTotalsByCurrency(row.totals))}</p>
         <p class="muted">${escapeHtml(formatNumber(row.lineItemCount))} line item(s) • ${escapeHtml(
-          formatNumber(row.resourceCount)
-        )} resource(s)</p>
+        formatNumber(row.resourceCount)
+      )} resource(s)</p>
       </article>
     `
     )
@@ -2825,6 +3457,114 @@ function parseBillingTypeSortValue(value) {
   ]);
   const normalized = String(value || '').trim().toLowerCase();
   return allowed.has(normalized) ? normalized : 'amount_desc';
+}
+
+function parseBillingAccountSortValue(value) {
+  const allowed = new Set([
+    'provider_asc',
+    'provider_desc',
+    'account_asc',
+    'account_desc',
+    'total_desc',
+    'total_asc',
+    'budget_desc',
+    'budget_asc'
+  ]);
+  const normalized = String(value || '').trim().toLowerCase();
+  return allowed.has(normalized) ? normalized : 'provider_asc';
+}
+
+function sortBillingAccountRows(rows = [], sortValue = 'provider_asc') {
+  const safeRows = Array.isArray(rows) ? rows.slice() : [];
+  const normalizedSort = parseBillingAccountSortValue(sortValue);
+  safeRows.sort((left, right) => {
+    const providerLeft = String(left?.provider || '').trim().toLowerCase();
+    const providerRight = String(right?.provider || '').trim().toLowerCase();
+    const accountLeft = String(left?.accountName || '').trim().toLowerCase();
+    const accountRight = String(right?.accountName || '').trim().toLowerCase();
+    const totalLeft = Number(left?.totalAmount || 0);
+    const totalRight = Number(right?.totalAmount || 0);
+    const budgetLeft = Number(left?.budgetDelta || 0);
+    const budgetRight = Number(right?.budgetDelta || 0);
+    const accountIdLeft = String(left?.accountId || '').trim().toLowerCase();
+    const accountIdRight = String(right?.accountId || '').trim().toLowerCase();
+
+    const compareProvider = providerLeft.localeCompare(providerRight);
+    const compareAccount = accountLeft.localeCompare(accountRight);
+    const compareAccountId = accountIdLeft.localeCompare(accountIdRight);
+
+    if (normalizedSort === 'provider_asc') {
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      if (totalRight !== totalLeft) {
+        return totalRight - totalLeft;
+      }
+      return compareAccount || compareAccountId;
+    }
+    if (normalizedSort === 'provider_desc') {
+      if (compareProvider !== 0) {
+        return -compareProvider;
+      }
+      if (totalRight !== totalLeft) {
+        return totalRight - totalLeft;
+      }
+      return compareAccount || compareAccountId;
+    }
+    if (normalizedSort === 'account_asc') {
+      if (compareAccount !== 0) {
+        return compareAccount;
+      }
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      return compareAccountId;
+    }
+    if (normalizedSort === 'account_desc') {
+      if (compareAccount !== 0) {
+        return -compareAccount;
+      }
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      return compareAccountId;
+    }
+    if (normalizedSort === 'total_desc') {
+      if (totalRight !== totalLeft) {
+        return totalRight - totalLeft;
+      }
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      return compareAccount || compareAccountId;
+    }
+    if (normalizedSort === 'total_asc') {
+      if (totalLeft !== totalRight) {
+        return totalLeft - totalRight;
+      }
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      return compareAccount || compareAccountId;
+    }
+    if (normalizedSort === 'budget_desc') {
+      if (budgetRight !== budgetLeft) {
+        return budgetRight - budgetLeft;
+      }
+      if (compareProvider !== 0) {
+        return compareProvider;
+      }
+      return compareAccount || compareAccountId;
+    }
+    if (budgetLeft !== budgetRight) {
+      return budgetLeft - budgetRight;
+    }
+    if (compareProvider !== 0) {
+      return compareProvider;
+    }
+    return compareAccount || compareAccountId;
+  });
+  return safeRows;
 }
 
 function getBillingResourceRows() {
@@ -3195,8 +3935,8 @@ function getFilteredSortedBillingResourceRows() {
     const rowMatchesSearch = billingTextIncludesAllTokens(rowSearchText, searchTokens);
     const searchMatchedDetails = searchTokens.length
       ? tagMatchedDetails.filter((detail) =>
-          billingTextIncludesAllTokens(buildBillingDetailSearchText(detail, row, accountNameMap), searchTokens)
-        )
+        billingTextIncludesAllTokens(buildBillingDetailSearchText(detail, row, accountNameMap), searchTokens)
+      )
       : tagMatchedDetails;
 
     if (searchTokens.length && !rowMatchesSearch && !searchMatchedDetails.length) {
@@ -3226,8 +3966,8 @@ function getFilteredSortedBillingResourceRows() {
         (tagFilter.mode === 'all' && !searchTokens.length) || (rowMatchesSearch && !visibleDetails.length)
           ? Number(row?.totalAmount || 0)
           : Number.isFinite(matchedAmount)
-          ? matchedAmount
-          : 0,
+            ? matchedAmount
+            : 0,
       snapshotCount: visibleDetails.length || Number(row?.snapshotCount || 0),
       __matchedDetails: visibleDetails,
       __taggedCount: tagStats.taggedCount,
@@ -3391,8 +4131,8 @@ function renderBillingDetailRows(group, groupKey, filteredDetailRows = null) {
   const detailRows = Array.isArray(filteredDetailRows)
     ? filteredDetailRows
     : Array.isArray(group?.details)
-    ? group.details
-    : [];
+      ? group.details
+      : [];
   if (!detailRows.length) {
     return `
       <tr class="billing-detail-row">
@@ -3421,19 +4161,19 @@ function renderBillingDetailRows(group, groupKey, filteredDetailRows = null) {
             </thead>
             <tbody>
               ${detailRows
-                .map((detail) => {
-                  const resourceRef = String(detail?.resourceRef || '').trim();
-                  const tagInfo = resourceRef ? getCachedTagsForResource(resourceRef) : null;
-                  const coverageStart = String(detail?.coverageStartDate || '').trim().slice(0, 10);
-                  const coverageEnd = String(detail?.coverageEndDate || '').trim().slice(0, 10);
-                  const coverageText =
-                    coverageStart || coverageEnd ? `${coverageStart || '?'} to ${coverageEnd || '?'}` : '-';
-                  const invoiceDate = String(detail?.invoiceDate || '').trim().slice(0, 10);
-                  const invoiceId = String(detail?.invoiceId || '').trim();
-                  const invoiceText = invoiceId
-                    ? `${invoiceId}${invoiceDate ? ` (${invoiceDate})` : ''}`
-                    : invoiceDate || '-';
-                  return `
+      .map((detail) => {
+        const resourceRef = String(detail?.resourceRef || '').trim();
+        const tagInfo = resourceRef ? getCachedTagsForResource(resourceRef) : null;
+        const coverageStart = String(detail?.coverageStartDate || '').trim().slice(0, 10);
+        const coverageEnd = String(detail?.coverageEndDate || '').trim().slice(0, 10);
+        const coverageText =
+          coverageStart || coverageEnd ? `${coverageStart || '?'} to ${coverageEnd || '?'}` : '-';
+        const invoiceDate = String(detail?.invoiceDate || '').trim().slice(0, 10);
+        const invoiceId = String(detail?.invoiceId || '').trim();
+        const invoiceText = invoiceId
+          ? `${invoiceId}${invoiceDate ? ` (${invoiceDate})` : ''}`
+          : invoiceDate || '-';
+        return `
                     <tr>
                       <td>${escapeHtml(detail.detailName || '-')}</td>
                       <td>${escapeHtml(String(detail?.accountId || '-'))}</td>
@@ -3444,20 +4184,19 @@ function renderBillingDetailRows(group, groupKey, filteredDetailRows = null) {
                       <td>${escapeHtml(formatCurrency(detail.amount, detail.currency || group.currency || 'USD'))}</td>
                       <td>${tagInfo ? renderTagChips(tagInfo.tags || {}) : '<span class="muted">No tags</span>'}</td>
                       <td>
-                        ${
-                          resourceRef
-                            ? `<button type="button" class="btn secondary tag-edit-btn" data-tag-edit-resource="${escapeHtml(
-                                resourceRef
-                              )}" data-tag-provider="${escapeHtml(detail.provider || group.provider)}" data-tag-vendor-id="${escapeHtml(
-                                detail.vendorId || ''
-                              )}" data-tag-account-id="${escapeHtml(detail.accountId || '')}">Edit tags</button>`
-                            : '<span class="muted">N/A</span>'
-                        }
+                        ${resourceRef
+            ? `<button type="button" class="btn secondary tag-edit-btn" data-tag-edit-resource="${escapeHtml(
+              resourceRef
+            )}" data-tag-provider="${escapeHtml(detail.provider || group.provider)}" data-tag-vendor-id="${escapeHtml(
+              detail.vendorId || ''
+            )}" data-tag-account-id="${escapeHtml(detail.accountId || '')}">Edit tags</button>`
+            : '<span class="muted">N/A</span>'
+          }
                       </td>
                     </tr>
                   `;
-                })
-                .join('')}
+      })
+      .join('')}
             </tbody>
           </table>
         </div>
@@ -3491,11 +4230,10 @@ function renderBillingResourceBreakdown() {
     const searchText = normalizeBillingSearchText(state.billing.searchText);
     dom.billingResourceBody.innerHTML = `
       <tr>
-        <td colspan="7" class="muted">${
-          searchText
-            ? `No bill types found for current filters and search: "${escapeHtml(searchText)}".`
-            : 'No bill types found for the current filters.'
-        }</td>
+        <td colspan="7" class="muted">${searchText
+        ? `No bill types found for current filters and search: "${escapeHtml(searchText)}".`
+        : 'No bill types found for the current filters.'
+      }</td>
       </tr>
     `;
     return;
@@ -3509,8 +4247,8 @@ function renderBillingResourceBreakdown() {
     const visibleDetailRows = Array.isArray(row?.__matchedDetails)
       ? row.__matchedDetails
       : Array.isArray(group?.details)
-      ? group.details
-      : [];
+        ? group.details
+        : [];
     const detailCount = visibleDetailRows.length;
     const canExpand = detailCount > 0;
     const expanded = canExpand && expandedSet.has(groupKey);
@@ -3518,25 +4256,22 @@ function renderBillingResourceBreakdown() {
     markup.push(`
       <tr data-billing-group-key="${escapeHtml(groupKey)}">
         <td class="billing-expand-cell">
-          ${
-            canExpand
-              ? `<button type="button" class="billing-expand-btn" data-billing-toggle="${escapeHtml(groupKey)}">${
-                  expanded ? '-' : '+'
-                }</button>`
-              : ''
-          }
+          ${canExpand
+        ? `<button type="button" class="billing-expand-btn" data-billing-toggle="${escapeHtml(groupKey)}">${expanded ? '-' : '+'
+        }</button>`
+        : ''
+      }
         </td>
         <td>${escapeHtml(getProviderDisplayLabel(row.provider, 'PROVIDER'))}</td>
         <td>
           <div class="billing-resource-type-cell">
             <span>${escapeHtml(row.resourceType)}</span>
-            ${
-              allowResourceTypeExport && String(row.provider || '').trim().toLowerCase() === scopedProvider
-                ? `<button type="button" class="btn secondary billing-resource-export-btn" data-billing-export-resource="${escapeHtml(
-                    row.resourceType
-                  )}">Export</button>`
-                : ''
-            }
+            ${allowResourceTypeExport && String(row.provider || '').trim().toLowerCase() === scopedProvider
+        ? `<button type="button" class="btn secondary billing-resource-export-btn" data-billing-export-resource="${escapeHtml(
+          row.resourceType
+        )}">Export</button>`
+        : ''
+      }
           </div>
         </td>
         <td>${escapeHtml(formatCurrency(row.totalAmount, row.currency))}</td>
@@ -3564,6 +4299,97 @@ function setLivePinnedGroupName(groupName, options = {}) {
   if (options.persist !== false) {
     saveLivePinnedGroupName(normalized);
   }
+}
+
+const STORAGE_PROVIDER_NAV_ITEMS = Object.freeze([
+  { provider: 'unified', label: 'Unified', permission: 'storage-unified', meta: 'Cross-provider summary' },
+  { provider: 'azure', label: 'Azure', permission: 'storage-azure', meta: 'Subscriptions + storage accounts' },
+  { provider: 'aws', label: 'AWS', permission: 'storage-aws', meta: 'S3 + EFS + security' },
+  { provider: 'gcp', label: 'GCP', permission: 'storage-gcp', meta: 'Cloud Storage scope' },
+  { provider: 'wasabi', label: 'Wasabi', permission: 'storage-wasabi', meta: 'Wasabi accounts + buckets' },
+  { provider: 'vsax', label: 'VSAx', permission: 'storage-vsax', meta: 'Group inventory + usage' },
+  { provider: 'other', label: 'Other', permission: 'storage-other', meta: 'Future provider adapters' }
+]);
+
+function getVisibleStorageProviderNavItems() {
+  const allowed = getAllowedViewSet();
+  const providerScopedItems = STORAGE_PROVIDER_NAV_ITEMS.filter((item) => allowed.has(item.permission));
+  if (providerScopedItems.length) {
+    return providerScopedItems;
+  }
+  if (allowed.has('storage')) {
+    return [...STORAGE_PROVIDER_NAV_ITEMS];
+  }
+  return [];
+}
+
+function setStorageEmbedProviderPreference(provider, options = {}) {
+  const normalized = normalizeStorageProvider(provider);
+  const persist = options.persist !== false;
+  state.storage.selectedProvider = normalized;
+
+  if (persist) {
+    saveStorageProvider(normalized);
+  }
+
+  try {
+    const storageProviderKey = 'cloudstudio.storage.activeProvider';
+    const scopedStorageProviderKey = getUserScopedLocalStorageKey(storageProviderKey);
+    if (scopedStorageProviderKey) {
+      localStorage.setItem(scopedStorageProviderKey, normalized);
+    }
+  } catch (_error) {
+    // Ignore storage write errors.
+  }
+
+  if (window.CLOUDSTUDIO_STORAGE_EMBED_API?.setProvider) {
+    window.CLOUDSTUDIO_STORAGE_EMBED_API.setProvider(normalized);
+  } else {
+    window.dispatchEvent(
+      new CustomEvent('cloudstudio-storage-provider-select', {
+        detail: {
+          provider: normalized
+        }
+      })
+    );
+  }
+
+  renderStorageNavGroup();
+}
+
+function renderStorageNavGroup() {
+  if (!dom.storageNavGroup) {
+    return;
+  }
+
+  const items = getVisibleStorageProviderNavItems();
+  if (!items.length) {
+    dom.storageNavGroup.innerHTML = '';
+    return;
+  }
+
+  const activeView = getActiveViewName();
+  const storageViewActive = activeView === 'storage';
+  const providerSet = new Set(items.map((item) => item.provider));
+  if (!providerSet.has(state.storage.selectedProvider)) {
+    state.storage.selectedProvider = items[0].provider;
+  }
+
+  dom.storageNavGroup.innerHTML = items
+    .map((item) => {
+      const active = storageViewActive && state.storage.selectedProvider === item.provider;
+      return `
+      <button type="button" class="billing-nav-item billing-nav-item-subtab ${active ? 'active' : ''}" data-storage-provider="${escapeHtml(
+        item.provider
+      )}">
+        <span class="billing-nav-item-title">
+          <span class="billing-nav-item-name">${escapeHtml(item.label)}</span>
+        </span>
+        <span class="billing-nav-item-meta">${escapeHtml(item.meta)}</span>
+      </button>
+    `;
+    })
+    .join('');
 }
 
 function renderLiveNavGroup() {
@@ -3720,8 +4546,8 @@ function renderBillingBudgetStatus(visibleAccountRows = []) {
         summary.status === 'over'
           ? `Over budget by ${formatCurrency(deltaAbs, summary.currency)}`
           : summary.status === 'under'
-          ? `Under budget by ${formatCurrency(deltaAbs, summary.currency)}`
-          : 'On budget';
+            ? `Under budget by ${formatCurrency(deltaAbs, summary.currency)}`
+            : 'On budget';
       return `
         <article class="card">
           <p class="label">${escapeHtml(summary.currency)} budget status</p>
@@ -3753,9 +4579,14 @@ function renderBillingAccountSummary() {
   const providerSummaries = buildBillingProviderSummaries();
   const selectedScopeId = normalizeBillingScopeId(state.billing.selectedScopeId);
   const selectedProvider = getSelectedBillingProvider();
-  const visibleAccountRows = selectedProvider
+  const rawVisibleAccountRows = selectedProvider
     ? accountRows.filter((row) => String(row.provider || '').trim().toLowerCase() === selectedProvider)
     : accountRows;
+  state.billing.accountSort = parseBillingAccountSortValue(state.billing.accountSort);
+  if (dom.billingAccountSort) {
+    dom.billingAccountSort.value = state.billing.accountSort;
+  }
+  const visibleAccountRows = sortBillingAccountRows(rawVisibleAccountRows, state.billing.accountSort);
   const visibleProviderSummaries = selectedProvider
     ? providerSummaries.filter((summary) => summary.provider === selectedProvider)
     : providerSummaries;
@@ -3808,7 +4639,7 @@ function renderBillingAccountSummary() {
   if (!accountRows.length) {
     dom.billingAccountSummaryBody.innerHTML = `
       <tr>
-        <td colspan="6" class="muted">No provider/account billing totals found for this period.</td>
+        <td colspan="7" class="muted">No provider/account billing totals found for this period.</td>
       </tr>
     `;
     return;
@@ -3817,7 +4648,7 @@ function renderBillingAccountSummary() {
   if (!visibleAccountRows.length) {
     dom.billingAccountSummaryBody.innerHTML = `
       <tr>
-        <td colspan="6" class="muted">No accounts found for the selected provider.</td>
+        <td colspan="7" class="muted">No accounts found for the selected provider.</td>
       </tr>
     `;
     return;
@@ -3827,12 +4658,48 @@ function renderBillingAccountSummary() {
     .map((row) => {
       const selected = selectedScopeId === String(row.scopeId || '');
       const scopeId = String(row.scopeId || '').trim();
+      const budgetStatusRaw = String(row.budgetStatus || '').trim().toLowerCase();
+      const budgetConfigured = Boolean(row.budgetConfigured);
+      const budgetDelta = Number(row.budgetDelta || 0);
+      const budgetCurrency = String(row.budgetCurrency || row.currency || 'USD').trim().toUpperCase() || 'USD';
+      const budgetDeltaAbs = Math.abs(budgetDelta);
+
+      let budgetClass = 'unset';
+      let budgetArrow = '•';
+      let budgetHeadline = 'Budget not set';
+      if (budgetConfigured) {
+        if (budgetStatusRaw === 'over') {
+          budgetClass = 'over';
+          budgetArrow = '↑';
+          budgetHeadline = `Over ${formatCurrency(budgetDeltaAbs, budgetCurrency)}`;
+        } else if (budgetStatusRaw === 'under') {
+          budgetClass = 'under';
+          budgetArrow = '↓';
+          budgetHeadline = `Under ${formatCurrency(budgetDeltaAbs, budgetCurrency)}`;
+        } else {
+          budgetClass = 'on-target';
+          budgetArrow = '→';
+          budgetHeadline = 'On target';
+        }
+      }
+
+      const budgetDetail = budgetConfigured
+        ? `Budget ${formatCurrency(row.budgetAmount || 0, budgetCurrency)}`
+        : `Set account budget in Billing -> Budget`;
+
       return `
         <tr class="billing-account-row ${selected ? 'active-row' : ''}" ${scopeId ? `data-billing-account-scope="${escapeHtml(scopeId)}"` : ''}>
           <td>${escapeHtml(getProviderDisplayLabel(row.providerLabel || row.provider || '', 'PROVIDER'))}</td>
           <td>${escapeHtml(row.accountName || '-')}</td>
           <td>${escapeHtml(row.accountId || '-')}</td>
           <td>${escapeHtml(formatCurrency(row.totalAmount, row.currency))}</td>
+          <td>
+            <div class="billing-budget-delta billing-budget-delta-table ${escapeHtml(budgetClass)}">
+              <span>${escapeHtml(budgetArrow)}</span>
+              <span>${escapeHtml(budgetHeadline)}</span>
+            </div>
+            <div class="billing-budget-table-detail muted">${escapeHtml(budgetDetail)}</div>
+          </td>
           <td>${escapeHtml(row.currency || 'USD')}</td>
           <td>${escapeHtml(formatNumber(row.snapshotCount || 0))}</td>
         </tr>
@@ -4013,8 +4880,8 @@ function renderBillingBudgetTable() {
           <td>${escapeHtml(row.currency || 'USD')}</td>
           ${monthCells}
           <td class="billing-budget-annual" data-budget-annual-cell="true">${escapeHtml(
-            formatCurrency(annualTotal, row.currency)
-          )}</td>
+        formatCurrency(annualTotal, row.currency)
+      )}</td>
         </tr>
       `;
     })
@@ -4200,6 +5067,273 @@ async function readJsonFileFromInput(inputElement) {
   }
 }
 
+function setAppConfigStatus(message, isError = false) {
+  if (!dom.appConfigStatus) {
+    return;
+  }
+  dom.appConfigStatus.textContent = String(message || '').trim();
+  dom.appConfigStatus.classList.toggle('negative', Boolean(isError && message));
+}
+
+function normalizeEnvOverridesMap(input) {
+  const source = input && typeof input === 'object' && !Array.isArray(input) ? input : {};
+  const output = {};
+  Object.entries(source).forEach(([rawKey, rawValue]) => {
+    const key = String(rawKey || '')
+      .trim()
+      .toUpperCase();
+    if (!key) {
+      return;
+    }
+    const value = String(rawValue === null || rawValue === undefined ? '' : rawValue).trim();
+    if (!value) {
+      return;
+    }
+    output[key] = value;
+  });
+  return Object.fromEntries(Object.entries(output).sort(([left], [right]) => left.localeCompare(right)));
+}
+
+function formatEnvOverridesForTextarea(input) {
+  const rows = [];
+  const normalized = normalizeEnvOverridesMap(input);
+  const serializeValue = (value) => {
+    const text = String(value === null || value === undefined ? '' : value);
+    if (!text.includes('\n')) {
+      return text;
+    }
+    const trimmed = text.trim();
+    if (
+      (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+      return trimmed;
+    }
+    return `'${text}'`;
+  };
+  Object.entries(normalized).forEach(([key, value]) => {
+    rows.push(`${key}=${serializeValue(value)}`);
+  });
+  return rows.join('\n');
+}
+
+function parseEnvOverridesFromTextarea(rawText) {
+  const lines = String(rawText || '').split(/\r?\n/);
+  const output = {};
+  const keyPattern = /^([A-Za-z_][A-Za-z0-9_]*)\s*=(.*)$/;
+
+  let currentKey = '';
+  let currentValueLines = [];
+  let multilineQuote = '';
+
+  function startsMultilineQuote(value) {
+    const text = String(value || '').trimStart();
+    const first = text.charAt(0);
+    if (first !== "'" && first !== '"') {
+      return '';
+    }
+
+    let escaped = false;
+    for (let index = 1; index < text.length; index += 1) {
+      const char = text.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (char === first) {
+        return '';
+      }
+    }
+    return first;
+  }
+
+  function closesMultilineQuote(line, quote) {
+    if (!quote) {
+      return false;
+    }
+    const text = String(line || '');
+    let index = text.length - 1;
+    while (index >= 0 && /\s/.test(text.charAt(index))) {
+      index -= 1;
+    }
+    if (index < 0 || text.charAt(index) !== quote) {
+      return false;
+    }
+
+    let slashCount = 0;
+    let backtrack = index - 1;
+    while (backtrack >= 0 && text.charAt(backtrack) === '\\') {
+      slashCount += 1;
+      backtrack -= 1;
+    }
+    return slashCount % 2 === 0;
+  }
+
+  function flushCurrent() {
+    if (!currentKey) {
+      return;
+    }
+    output[currentKey] = currentValueLines.join('\n');
+    currentKey = '';
+    currentValueLines = [];
+    multilineQuote = '';
+  }
+
+  lines.forEach((rawLine) => {
+    const line = String(rawLine || '');
+    const trimmed = line.trim();
+    if (!currentKey && (!trimmed || trimmed.startsWith('#'))) {
+      return;
+    }
+
+    if (currentKey && multilineQuote) {
+      currentValueLines.push(line);
+      if (closesMultilineQuote(line, multilineQuote)) {
+        flushCurrent();
+      }
+      return;
+    }
+
+    const match = line.match(keyPattern);
+    if (match) {
+      flushCurrent();
+      currentKey = String(match[1] || '').trim().toUpperCase();
+      const initialValue = String(match[2] || '');
+      currentValueLines = [initialValue];
+      multilineQuote = startsMultilineQuote(initialValue);
+      return;
+    }
+
+    if (currentKey) {
+      if (!trimmed || trimmed.startsWith('#')) {
+        return;
+      }
+      currentValueLines.push(line);
+    }
+  });
+
+  flushCurrent();
+  return normalizeEnvOverridesMap(output);
+}
+
+function normalizeRuntimeConfigPayload(input = {}) {
+  const runtimeConfig = input && typeof input === 'object' ? input : {};
+  const branding = runtimeConfig.branding && typeof runtimeConfig.branding === 'object' ? runtimeConfig.branding : {};
+  return {
+    branding: {
+      login: {
+        name: String(branding?.login?.name || '').trim() || 'CloudStudio',
+        initials: String(branding?.login?.initials || '').trim().toUpperCase() || 'CS'
+      },
+      main: {
+        name: String(branding?.main?.name || '').trim() || 'CloudStudio',
+        initials: String(branding?.main?.initials || '').trim().toUpperCase() || 'CS'
+      }
+    },
+    envOverrides: normalizeEnvOverridesMap(runtimeConfig.envOverrides || runtimeConfig.env || {})
+  };
+}
+
+function applyAppConfigToForm(runtimeConfig = {}) {
+  const normalized = normalizeRuntimeConfigPayload(runtimeConfig);
+  state.admin.runtimeConfig = normalized;
+  if (dom.appConfigLoginBrandName) dom.appConfigLoginBrandName.value = normalized.branding.login.name;
+  if (dom.appConfigLoginBrandInitials) dom.appConfigLoginBrandInitials.value = normalized.branding.login.initials;
+  if (dom.appConfigMainBrandName) dom.appConfigMainBrandName.value = normalized.branding.main.name;
+  if (dom.appConfigMainBrandInitials) dom.appConfigMainBrandInitials.value = normalized.branding.main.initials;
+  if (dom.appConfigEnvOverrides) dom.appConfigEnvOverrides.value = formatEnvOverridesForTextarea(normalized.envOverrides);
+}
+
+function buildRuntimeConfigPayloadFromForm() {
+  return normalizeRuntimeConfigPayload({
+    branding: {
+      login: {
+        name: dom.appConfigLoginBrandName?.value,
+        initials: dom.appConfigLoginBrandInitials?.value
+      },
+      main: {
+        name: dom.appConfigMainBrandName?.value,
+        initials: dom.appConfigMainBrandInitials?.value
+      }
+    },
+    envOverrides: parseEnvOverridesFromTextarea(dom.appConfigEnvOverrides?.value || '')
+  });
+}
+
+async function loadAppConfig() {
+  if (!hasClientViewAccess('admin-settings')) {
+    return;
+  }
+  const payload = await api('/api/admin/app-config');
+  applyAppConfigToForm(payload?.runtimeConfig || {});
+  setAppConfigStatus('Loaded app config from database.');
+}
+
+async function saveAppConfig(event) {
+  event?.preventDefault?.();
+  if (!hasClientViewAccess('admin-settings')) {
+    return;
+  }
+  setAppConfigStatus('Saving app config...');
+  const runtimeConfig = buildRuntimeConfigPayloadFromForm();
+  const payload = await api('/api/admin/app-config', {
+    method: 'PUT',
+    body: JSON.stringify({ runtimeConfig })
+  });
+  applyAppConfigToForm(payload?.runtimeConfig || runtimeConfig);
+  applyMainBranding(payload?.runtimeConfig?.branding?.main || runtimeConfig?.branding?.main || {});
+  await loadServices();
+  setAppConfigStatus('App config saved and reloaded.');
+  showToast('App config saved.');
+}
+
+async function exportAppConfig() {
+  if (!hasClientViewAccess('admin-settings')) {
+    return;
+  }
+  const payload = await api('/api/admin/app-config/export');
+  const suffix = buildTimestampFileSuffix();
+  downloadJsonFile(`cloudstudio-app-config-${suffix}.json`, payload);
+  showToast('App config exported.');
+}
+
+function openImportAppConfigPicker() {
+  if (!dom.importAppConfigInput) {
+    return;
+  }
+  dom.importAppConfigInput.value = '';
+  dom.importAppConfigInput.click();
+}
+
+async function importAppConfigFromFile() {
+  if (!hasClientViewAccess('admin-settings')) {
+    return;
+  }
+  const imported = await readJsonFileFromInput(dom.importAppConfigInput);
+  setAppConfigStatus('Importing app config...');
+  const result = await api('/api/admin/app-config/import', {
+    method: 'POST',
+    body: JSON.stringify({ payload: imported })
+  });
+  applyAppConfigToForm(result?.runtimeConfig || {});
+  applyMainBranding(result?.runtimeConfig?.branding?.main || {});
+  await Promise.all([loadServices(), loadVendors(), loadDbBackupConfig()]);
+  await refreshBillingAfterVendorChange();
+  const created = Number(result?.vendorImport?.createdCount || 0);
+  const updated = Number(result?.vendorImport?.updatedCount || 0);
+  const failed = Number(result?.vendorImport?.failedCount || 0);
+  const vendorSummary =
+    result?.vendorImport && (created > 0 || updated > 0 || failed > 0)
+      ? ` Vendors: created ${formatNumber(created)}, updated ${formatNumber(updated)}, failed ${formatNumber(failed)}.`
+      : '';
+  setAppConfigStatus(`App config import completed.${vendorSummary}`, failed > 0);
+  showToast(failed > 0 ? 'App config imported with some vendor failures.' : 'App config imported.', failed > 0);
+}
+
 async function refreshBillingAfterVendorChange() {
   try {
     ensureBillingRangeDefaults();
@@ -4282,7 +5416,10 @@ async function importSingleVendorFromFile() {
 async function loadVendors() {
   const payload = await api('/api/vendors');
   const body = document.getElementById('vendorsBody');
-  const vendors = Array.isArray(payload.vendors) ? payload.vendors : [];
+  const vendors = (Array.isArray(payload.vendors) ? payload.vendors : []).map((vendor) => ({
+    ...vendor,
+    hidden: isVendorHiddenInClient(vendor)
+  }));
   state.vendorProviders = Array.from(
     new Set(
       vendors
@@ -4293,16 +5430,19 @@ async function loadVendors() {
   body.innerHTML = vendors
     .map(
       (vendor) => `
-      <tr data-vendor-id="${vendor.id}">
-        <td>${vendor.name}</td>
+      <tr data-vendor-id="${vendor.id}" class="${vendor.hidden ? 'vendor-hidden-row' : ''}">
+        <td>${escapeHtml(vendor.name || '')}</td>
         <td>${escapeHtml(getProviderDisplayLabel(vendor.provider, vendor.provider || 'Provider'))}</td>
-        <td>${vendor.cloudType}</td>
-        <td>${vendor.authMethod}</td>
+        <td>${escapeHtml(vendor.cloudType || '-')}</td>
+        <td>${escapeHtml(vendor.authMethod || '-')}</td>
         <td>${vendor.hasCredentials ? 'configured' : 'none'}</td>
+        <td>${vendor.hidden ? '<span class="vendor-visibility-hidden">Hidden</span>' : '<span class="vendor-visibility-visible">Visible</span>'}</td>
         <td>
           <button class="btn secondary js-test-vendor" data-vendor-id="${vendor.id}">Test</button>
           <button class="btn secondary js-export-vendor" data-vendor-id="${vendor.id}">Export</button>
           <button class="btn secondary js-import-vendor" data-vendor-id="${vendor.id}">Import</button>
+          <button class="btn secondary js-toggle-vendor-hidden" data-vendor-id="${vendor.id}" data-vendor-hidden="${vendor.hidden ? '1' : '0'
+        }">${vendor.hidden ? 'Unhide' : 'Hide'}</button>
           <button class="btn danger js-delete-vendor" data-vendor-id="${vendor.id}">Delete</button>
         </td>
       </tr>
@@ -4332,6 +5472,8 @@ async function submitVendorForm(event) {
     azure: 'service_principal',
     aws: 'api_key',
     gcp: 'service_account_or_export',
+    'grafana-cloud': 'api_key',
+    sendgrid: 'api_key',
     rackspace: 'api_key',
     private: 'private_api',
     wasabi: 'api_key',
@@ -4399,6 +5541,21 @@ async function handleVendorTableClick(event) {
   if (target.classList.contains('js-test-vendor')) {
     const result = await api(`/api/vendors/${vendorId}/test`, { method: 'POST' });
     showToast(`Test ok: ${result.provider} ${formatCurrency(result.preview.amount, result.preview.currency)}`);
+    return;
+  }
+
+  if (target.classList.contains('js-toggle-vendor-hidden')) {
+    const currentlyHidden = String(target.dataset.vendorHidden || '').trim() === '1';
+    const nextHidden = !currentlyHidden;
+    await api(`/api/vendors/${encodeURIComponent(vendorId)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        hidden: nextHidden
+      })
+    });
+    showToast(nextHidden ? 'Vendor hidden.' : 'Vendor unhidden.');
+    await loadVendors();
+    await refreshBillingAfterVendorChange();
   }
 }
 
@@ -4776,6 +5933,16 @@ function handleBillingTypeSortChange(event) {
   renderBillingResourceBreakdown();
 }
 
+function handleBillingAccountSortChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) {
+    return;
+  }
+  state.billing.accountSort = parseBillingAccountSortValue(target.value);
+  saveBillingAccountSort(state.billing.accountSort);
+  renderBillingAccountSummary();
+}
+
 function handleBillingSearchInput(event) {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) {
@@ -4828,7 +5995,7 @@ async function handleBillingTagSummaryKeydown(event) {
 
 function applyBillingPreset(preset, options = {}) {
   const normalized = String(preset || '').trim().toLowerCase();
-  const allowed = new Set(['last_month', '3_months', '6_months', '1_year']);
+  const allowed = new Set(['month_to_date', 'last_month', '3_months', '6_months', '1_year']);
   if (!allowed.has(normalized)) {
     return false;
   }
@@ -4862,6 +6029,23 @@ async function handleBillingPresetClick(event) {
     return;
   }
   await loadBilling();
+}
+
+async function handleOverviewBillingPresetClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('[data-overview-billing-preset]');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const preset = String(button.dataset.overviewBillingPreset || '').trim();
+  const changed = applyOverviewBillingPreset(preset);
+  if (!changed) {
+    return;
+  }
+  await loadOverview();
 }
 
 async function handleBillingRangeChange() {
@@ -5384,8 +6568,8 @@ function buildBillingExportFileName(scope = {}, range = {}, options = {}) {
   const scopePart = scope.vendorId
     ? `vendor-${toFileSlug(scope.vendorId, 'vendor')}`
     : scope.provider
-    ? `provider-${toFileSlug(scope.provider, 'provider')}`
-    : 'all-providers';
+      ? `provider-${toFileSlug(scope.provider, 'provider')}`
+      : 'all-providers';
   if (options.resourceType) {
     return `billing-${scopePart}-resource-${toFileSlug(options.resourceType, 'resource')}-${periodStart}-to-${periodEnd}.csv`;
   }
@@ -5463,9 +6647,9 @@ async function syncBillingFromProviders() {
   const range = readBillingRangeFromInputs();
   const payload = range
     ? {
-        periodStart: range.periodStart,
-        periodEnd: range.periodEnd
-      }
+      periodStart: range.periodStart,
+      periodEnd: range.periodEnd
+    }
     : {};
   setBillingSyncState({
     running: true,
@@ -5606,6 +6790,8 @@ async function loadTags() {
   const payload = await api('/api/tags?limit=1500');
   const rows = Array.isArray(payload?.rows) ? payload.rows : [];
 
+  state.tags.rows = rows;
+
   for (const row of rows) {
     const key = normalizeResourceRefKey(row?.resourceRef);
     if (!key) {
@@ -5627,14 +6813,34 @@ async function loadTags() {
     renderBillingProductTotals();
   }
 
+  renderTagsTable();
+}
+
+function renderTagsTable() {
+  if (!dom.tagsBody) {
+    return;
+  }
+  const query = state.tags.searchText.trim().toLowerCase();
+  const rows = state.tags.rows.filter((row) => {
+    if (!query) return true;
+    const provider = getProviderDisplayLabel(row.provider, 'PROVIDER').toLowerCase();
+    const resourceRef = (row.resourceRef || '').toLowerCase();
+    const accountId = (row.accountId || '').toLowerCase();
+    return provider.includes(query) || resourceRef.includes(query) || accountId.includes(query);
+  });
+
   if (!rows.length) {
     dom.tagsBody.innerHTML = `
       <tr>
-        <td colspan="7" class="muted">No tags found yet. Expand billing rows and sync/edit tags to populate this table.</td>
+        <td colspan="7" class="muted">${state.tags.rows.length
+        ? 'No tags match your search.'
+        : 'No tags found yet. Expand billing rows and sync/edit tags to populate this table.'
+      }</td>
       </tr>
     `;
     return;
   }
+
   dom.tagsBody.innerHTML = rows
     .map(
       (row) => `
@@ -5661,6 +6867,519 @@ async function loadTags() {
     `
     )
     .join('');
+}
+
+function handleTagsSearchInput(event) {
+  state.tags.searchText = event.target.value || '';
+  renderTagsTable();
+}
+
+function normalizeGrafanaCloudPreset(preset) {
+  const normalized = String(preset || '').trim().toLowerCase();
+  const allowed = new Set(['month_to_date', 'last_month', '3_months', '6_months', '1_year']);
+  return allowed.has(normalized) ? normalized : 'custom';
+}
+
+function renderGrafanaCloudRangePresetButtons() {
+  if (!dom.grafanaCloudRangePresets) {
+    return;
+  }
+  const activePreset = normalizeGrafanaCloudPreset(state.grafanaCloud.rangePreset);
+  dom.grafanaCloudRangePresets.querySelectorAll('[data-grafana-cloud-preset]').forEach((button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    const preset = normalizeGrafanaCloudPreset(button.dataset.grafanaCloudPreset || '');
+    button.classList.toggle('active', preset !== 'custom' && preset === activePreset);
+  });
+}
+
+function applyGrafanaCloudPreset(preset, options = {}) {
+  const normalized = normalizeGrafanaCloudPreset(preset);
+  if (normalized === 'custom') {
+    return false;
+  }
+  const range = getBillingRangeForPreset(normalized);
+  const currentStart = String(dom.grafanaCloudRangeStart?.value || state.grafanaCloud.periodStart || '').trim();
+  const currentEnd = String(dom.grafanaCloudRangeEnd?.value || state.grafanaCloud.periodEnd || '').trim();
+  const changed =
+    normalized !== normalizeGrafanaCloudPreset(state.grafanaCloud.rangePreset) ||
+    currentStart !== range.periodStart ||
+    currentEnd !== range.periodEnd;
+
+  if (dom.grafanaCloudRangeStart) {
+    dom.grafanaCloudRangeStart.value = range.periodStart;
+  }
+  if (dom.grafanaCloudRangeEnd) {
+    dom.grafanaCloudRangeEnd.value = range.periodEnd;
+  }
+  state.grafanaCloud.periodStart = range.periodStart;
+  state.grafanaCloud.periodEnd = range.periodEnd;
+  state.grafanaCloud.rangePreset = normalized;
+  renderGrafanaCloudRangePresetButtons();
+  if (options.persist !== false) {
+    saveGrafanaCloudPreset(normalized);
+  }
+  return changed;
+}
+
+function ensureGrafanaCloudRangeDefaults() {
+  if (!dom.grafanaCloudRangeStart || !dom.grafanaCloudRangeEnd) {
+    return;
+  }
+  const startValue = String(dom.grafanaCloudRangeStart.value || '').trim();
+  const endValue = String(dom.grafanaCloudRangeEnd.value || '').trim();
+  if (startValue && endValue) {
+    state.grafanaCloud.periodStart = startValue;
+    state.grafanaCloud.periodEnd = endValue;
+    state.grafanaCloud.rangePreset = resolveRangePresetFromValues(startValue, endValue);
+    renderGrafanaCloudRangePresetButtons();
+    return;
+  }
+  const preset = normalizeGrafanaCloudPreset(state.grafanaCloud.rangePreset);
+  if (preset !== 'custom') {
+    applyGrafanaCloudPreset(preset, { persist: false });
+    return;
+  }
+  applyGrafanaCloudPreset('month_to_date', { persist: false });
+}
+
+function setGrafanaCloudSyncState({ running = false, message = '', error = false, success = false } = {}) {
+  if (!dom.grafanaCloudSyncStatus) {
+    return;
+  }
+  dom.grafanaCloudSyncStatus.textContent = message || '';
+  dom.grafanaCloudSyncStatus.classList.toggle('working', Boolean(running));
+  dom.grafanaCloudSyncStatus.classList.toggle('error', !running && Boolean(error));
+  dom.grafanaCloudSyncStatus.classList.toggle('success', !running && Boolean(success));
+}
+
+function renderGrafanaCloudVendorFilter() {
+  if (!dom.grafanaCloudVendorFilter) {
+    return;
+  }
+  const vendors = Array.isArray(state.grafanaCloud.vendors) ? state.grafanaCloud.vendors : [];
+  const selected = String(state.grafanaCloud.selectedVendorId || 'all').trim() || 'all';
+  const hasSelectedVendor = selected === 'all' || vendors.some((vendor) => String(vendor?.id || '').trim() === selected);
+  const resolved = hasSelectedVendor ? selected : 'all';
+  state.grafanaCloud.selectedVendorId = resolved;
+  dom.grafanaCloudVendorFilter.innerHTML = [
+    '<option value="all">All Grafana vendors</option>',
+    ...vendors
+      .map((vendor) => {
+        const id = String(vendor?.id || '').trim();
+        if (!id) {
+          return '';
+        }
+        const label = String(vendor?.name || vendor?.accountId || id).trim() || id;
+        return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
+      })
+      .filter(Boolean)
+  ].join('');
+  dom.grafanaCloudVendorFilter.value = resolved;
+}
+
+function formatGrafanaUsage(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return '-';
+  }
+  return formatScaledNumber(numeric);
+}
+
+function renderGrafanaCloudSummaryCards(payload = {}) {
+  if (!dom.grafanaCloudSummaryCards) {
+    return;
+  }
+  const allRows = Array.isArray(state.grafanaCloud.rows) ? state.grafanaCloud.rows : [];
+  const rows = allRows.filter((row) => !isGrafanaDetailMetricRow(row));
+  const detailRows = allRows.length - rows.length;
+  const vendors = Array.isArray(state.grafanaCloud.vendors) ? state.grafanaCloud.vendors : [];
+  const amountTotal = rows.reduce((sum, row) => sum + (Number.isFinite(Number(row?.amountDue)) ? Number(row.amountDue) : 0), 0);
+  const ingestTotal = rows.reduce(
+    (sum, row) => sum + (Number.isFinite(Number(row?.ingestUsage)) ? Number(row.ingestUsage) : 0),
+    0
+  );
+  const queryTotal = rows.reduce(
+    (sum, row) => sum + (Number.isFinite(Number(row?.queryUsage)) ? Number(row.queryUsage) : 0),
+    0
+  );
+  const latestDate = rows.reduce((latest, row) => {
+    const usageDate = String(row?.usageDate || '').trim();
+    return usageDate && (!latest || usageDate > latest) ? usageDate : latest;
+  }, '');
+  const currency = String(rows.find((row) => row?.currency)?.currency || 'USD').trim().toUpperCase() || 'USD';
+
+  dom.grafanaCloudSummaryCards.innerHTML = `
+    <article class="card">
+      <p class="label">Configured vendors</p>
+      <p class="value">${formatNumber(vendors.length)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Daily rows</p>
+      <p class="value">${formatNumber(rows.length)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Detail metric rows</p>
+      <p class="value">${formatNumber(detailRows)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Amount due</p>
+      <p class="value">${formatCurrency(amountTotal, currency)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Ingest usage</p>
+      <p class="value">${formatGrafanaUsage(ingestTotal)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Query usage</p>
+      <p class="value">${formatGrafanaUsage(queryTotal)}</p>
+    </article>
+    <article class="card">
+      <p class="label">Latest usage date</p>
+      <p class="value">${latestDate || '-'}</p>
+    </article>
+  `;
+
+  if (dom.grafanaCloudScopeHint) {
+    const periodStart = String(payload?.periodStart || state.grafanaCloud.periodStart || '').trim() || '-';
+    const periodEnd = String(payload?.periodEnd || state.grafanaCloud.periodEnd || '').trim() || '-';
+    const selectedVendorId = String(state.grafanaCloud.selectedVendorId || 'all').trim();
+    const selectedVendor =
+      selectedVendorId !== 'all'
+        ? vendors.find((vendor) => String(vendor?.id || '').trim() === selectedVendorId)
+        : null;
+    const scopeLabel = selectedVendor ? selectedVendor.name || selectedVendor.accountId || selectedVendorId : 'All Grafana vendors';
+    dom.grafanaCloudScopeHint.textContent = `${scopeLabel} | ${periodStart} to ${periodEnd} | ${formatNumber(
+      rows.length
+    )} billing row(s), ${formatNumber(detailRows)} detail row(s).`;
+  }
+}
+
+function renderGrafanaCloudDetails(payload = {}) {
+  if (!dom.grafanaCloudProductCards || !dom.grafanaCloudMetricsBody) {
+    return;
+  }
+  const details = payload?.details && typeof payload.details === 'object' ? payload.details : state.grafanaCloud.details;
+  const products = Array.isArray(details?.products) ? details.products : [];
+  const metrics = Array.isArray(details?.metrics) ? details.metrics : [];
+  const compareRange = details?.compareRange && typeof details.compareRange === 'object' ? details.compareRange : null;
+
+  if (dom.grafanaCloudDetailsHint) {
+    const compareLabel =
+      compareRange?.periodStart && compareRange?.periodEnd
+        ? `Compared to ${compareRange.periodStart} to ${compareRange.periodEnd}.`
+        : 'Previous range comparison unavailable.';
+    dom.grafanaCloudDetailsHint.textContent = `${formatNumber(metrics.length)} metric(s) across ${formatNumber(
+      products.length
+    )} product(s). ${compareLabel}`;
+  }
+
+  if (!metrics.length) {
+    dom.grafanaCloudProductCards.innerHTML = `
+      <article class="card">
+        <p class="label">Usage details</p>
+        <p class="value">-</p>
+        <p class="muted">Run "Sync now" to load detailed Grafana usage dimensions.</p>
+      </article>
+    `;
+    dom.grafanaCloudMetricsBody.innerHTML = `
+      <tr>
+        <td colspan="9" class="muted">No Grafana product metrics found in the selected range yet.</td>
+      </tr>
+    `;
+    return;
+  }
+
+  dom.grafanaCloudProductCards.innerHTML = products
+    .map((product) => {
+      const productMetrics = metrics.filter((metric) => metric.productKey === product.productKey);
+      const primaryCost =
+        productMetrics.find((metric) => metric.metricKind === 'cost' && metric.isPrimaryCost) ||
+        productMetrics.find((metric) => metric.metricKind === 'cost') ||
+        null;
+      const highlightUsage = productMetrics.find((metric) => metric.metricKind === 'usage') || null;
+      const deltaPercent = Number(primaryCost?.deltaPercent);
+      const deltaClass = Number.isFinite(deltaPercent) ? (deltaPercent >= 0 ? 'up' : 'down') : 'flat';
+      const deltaLabel = Number.isFinite(deltaPercent) ? formatSignedPercent(deltaPercent) : '-';
+      return `
+        <article class="card grafana-product-card">
+          <p class="label">${escapeHtml(product.productLabel || product.productKey || 'Product')}</p>
+          <p class="value">${primaryCost ? formatGrafanaMetricValue(primaryCost.value, 'cost', 'USD', 'USD') : '-'}</p>
+          <p class="muted">${escapeHtml(primaryCost?.metricLabel || 'Cost metric')}</p>
+          <p class="muted grafana-product-secondary">${highlightUsage
+          ? `${escapeHtml(highlightUsage.metricLabel)}: ${escapeHtml(
+            formatGrafanaMetricValue(highlightUsage.value, highlightUsage.metricKind, highlightUsage.metricUnit)
+          )}`
+          : 'No usage metric'
+        }</p>
+          <p class="muted grafana-delta ${deltaClass}">Delta: ${escapeHtml(deltaLabel)}</p>
+        </article>
+      `;
+    })
+    .join('');
+
+  dom.grafanaCloudMetricsBody.innerHTML = metrics
+    .map((metric) => {
+      const deltaPercent = Number(metric?.deltaPercent);
+      const deltaClass = Number.isFinite(deltaPercent) ? (deltaPercent >= 0 ? 'up' : 'down') : 'flat';
+      return `
+        <tr>
+          <td>${escapeHtml(metric?.productLabel || metric?.productKey || '-')}</td>
+          <td>${escapeHtml(metric?.metricLabel || metric?.metricKey || '-')}</td>
+          <td>${escapeHtml(
+        formatGrafanaMetricValue(metric?.value, metric?.metricKind, metric?.metricUnit, metric?.metricKind === 'cost' ? 'USD' : 'USD')
+      )}</td>
+          <td>${escapeHtml(String(metric?.metricUnit || metric?.metricKind || '-'))}</td>
+          <td>${escapeHtml(
+        metric?.previousValue === null || metric?.previousValue === undefined
+          ? '-'
+          : formatGrafanaMetricValue(
+            metric.previousValue,
+            metric?.metricKind,
+            metric?.metricUnit,
+            metric?.metricKind === 'cost' ? 'USD' : 'USD'
+          )
+      )}</td>
+          <td><span class="grafana-delta ${deltaClass}">${escapeHtml(formatSignedPercent(metric?.deltaPercent))}</span></td>
+          <td>${formatNumber(metric?.rowCount || 0)}</td>
+          <td>${escapeHtml(metric?.lastUsageDate || '-')}</td>
+          <td>${escapeHtml(metric?.metricKey || '-')}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function renderGrafanaCloudDimensionTable(payload = {}) {
+  if (!dom.grafanaCloudDimensionBody) {
+    return;
+  }
+  const rows = Array.isArray(payload?.summary?.byDimension) ? payload.summary.byDimension : [];
+  if (!rows.length) {
+    dom.grafanaCloudDimensionBody.innerHTML = `
+      <tr>
+        <td colspan="8" class="muted">No Grafana daily ingest rows in this range yet.</td>
+      </tr>
+    `;
+    return;
+  }
+  const fallbackCurrency = String(state.grafanaCloud.rows.find((item) => item?.currency)?.currency || 'USD').trim().toUpperCase() || 'USD';
+  dom.grafanaCloudDimensionBody.innerHTML = rows
+    .slice(0, 1000)
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row?.usageDate || '-')}</td>
+          <td>${escapeHtml(row?.dimensionName || row?.dimensionKey || '-')}</td>
+          <td>${formatCurrency(row?.amountDue || 0, fallbackCurrency)}</td>
+          <td>${formatGrafanaUsage(row?.ingestUsage)}</td>
+          <td>${formatGrafanaUsage(row?.queryUsage)}</td>
+          <td>${formatGrafanaUsage(row?.totalUsage)}</td>
+          <td>${formatNumber(row?.rowCount || 0)}</td>
+          <td>${escapeHtml(row?.dimensionKey || '-')}</td>
+        </tr>
+      `
+    )
+    .join('');
+}
+
+function renderGrafanaCloudDailyTable() {
+  if (!dom.grafanaCloudDailyBody) {
+    return;
+  }
+  const rows = (Array.isArray(state.grafanaCloud.rows) ? state.grafanaCloud.rows : []).filter(
+    (row) => !isGrafanaDetailMetricRow(row)
+  );
+  const vendorNameById = new Map(
+    (Array.isArray(state.grafanaCloud.vendors) ? state.grafanaCloud.vendors : []).map((vendor) => [
+      String(vendor?.id || '').trim(),
+      String(vendor?.name || vendor?.accountId || vendor?.id || '').trim()
+    ])
+  );
+  if (!rows.length) {
+    dom.grafanaCloudDailyBody.innerHTML = `
+      <tr>
+        <td colspan="11" class="muted">No Grafana ingest rows found for the selected scope.</td>
+      </tr>
+    `;
+    return;
+  }
+  const sorted = [...rows].sort((left, right) => {
+    const dateCmp = String(right?.usageDate || '').localeCompare(String(left?.usageDate || ''));
+    if (dateCmp !== 0) {
+      return dateCmp;
+    }
+    return Number(right?.amountDue || 0) - Number(left?.amountDue || 0);
+  });
+  dom.grafanaCloudDailyBody.innerHTML = sorted
+    .slice(0, 5000)
+    .map((row) => {
+      const vendorName = vendorNameById.get(String(row?.vendorId || '').trim()) || row?.vendorId || '-';
+      const estimated = row?.isEstimated ? 'Estimated' : 'Actual';
+      return `
+        <tr>
+          <td>${escapeHtml(row?.usageDate || '-')}</td>
+          <td>${escapeHtml(vendorName)}</td>
+          <td>${escapeHtml(row?.stackName || row?.stackSlug || '-')}</td>
+          <td>${escapeHtml(row?.dimensionName || row?.dimensionKey || '-')}</td>
+          <td>${formatGrafanaUsage(row?.ingestUsage)}</td>
+          <td>${formatGrafanaUsage(row?.queryUsage)}</td>
+          <td>${formatGrafanaUsage(row?.totalUsage)}</td>
+          <td>${formatCurrency(row?.amountDue || 0, row?.currency || 'USD')}</td>
+          <td>${escapeHtml(row?.unit || '-')}</td>
+          <td>${escapeHtml(estimated)}</td>
+          <td>${escapeHtml(formatDateTime(row?.fetchedAt || row?.updatedAt || null))}</td>
+        </tr>
+      `;
+    })
+    .join('');
+}
+
+function applyGrafanaCloudPayload(payload = {}) {
+  state.grafanaCloud.vendors = Array.isArray(payload?.vendors) ? payload.vendors : [];
+  state.grafanaCloud.rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  state.grafanaCloud.summary = payload?.summary && typeof payload.summary === 'object' ? payload.summary : null;
+  state.grafanaCloud.details = payload?.details && typeof payload.details === 'object' ? payload.details : null;
+  state.grafanaCloud.sync = payload?.sync && typeof payload.sync === 'object' ? payload.sync : null;
+  state.grafanaCloud.periodStart = String(payload?.periodStart || state.grafanaCloud.periodStart || '').trim();
+  state.grafanaCloud.periodEnd = String(payload?.periodEnd || state.grafanaCloud.periodEnd || '').trim();
+  renderGrafanaCloudVendorFilter();
+  renderGrafanaCloudSummaryCards(payload);
+  renderGrafanaCloudDetails(payload);
+  renderGrafanaCloudDimensionTable(payload);
+  renderGrafanaCloudDailyTable();
+
+  const syncStatus = state.grafanaCloud.sync || {};
+  if (syncStatus.running) {
+    setGrafanaCloudSyncState({
+      running: true,
+      message: 'Grafana-Cloud sync in progress...'
+    });
+    return;
+  }
+  if (syncStatus.lastStatus === 'error') {
+    setGrafanaCloudSyncState({
+      error: true,
+      message: syncStatus.lastError ? `Sync error: ${syncStatus.lastError}` : 'Latest sync failed.'
+    });
+    return;
+  }
+  const nextRun = syncStatus?.nextRunAt ? formatDateTime(syncStatus.nextRunAt) : null;
+  setGrafanaCloudSyncState({
+    success: true,
+    message: nextRun ? `Daily auto-sync active. Next run: ${nextRun}.` : 'Grafana-Cloud data loaded.'
+  });
+}
+
+function getGrafanaCloudQueryString() {
+  ensureGrafanaCloudRangeDefaults();
+  const params = new URLSearchParams();
+  const vendorId = String(state.grafanaCloud.selectedVendorId || 'all').trim();
+  const periodStart = String(dom.grafanaCloudRangeStart?.value || state.grafanaCloud.periodStart || '').trim();
+  const periodEnd = String(dom.grafanaCloudRangeEnd?.value || state.grafanaCloud.periodEnd || '').trim();
+  if (vendorId && vendorId !== 'all') {
+    params.set('vendorId', vendorId);
+  }
+  if (periodStart) {
+    params.set('periodStart', periodStart);
+  }
+  if (periodEnd) {
+    params.set('periodEnd', periodEnd);
+  }
+  return params.toString();
+}
+
+async function loadGrafanaCloud() {
+  ensureGrafanaCloudRangeDefaults();
+  const queryString = getGrafanaCloudQueryString();
+  const suffix = queryString ? `?${queryString}` : '';
+  const payload = await api(`/api/platform/grafana-cloud/daily-ingest${suffix}`);
+  applyGrafanaCloudPayload(payload);
+}
+
+async function syncGrafanaCloud() {
+  ensureGrafanaCloudRangeDefaults();
+  const vendorId = String(state.grafanaCloud.selectedVendorId || 'all').trim();
+  const periodStart = String(dom.grafanaCloudRangeStart?.value || state.grafanaCloud.periodStart || '').trim();
+  const periodEnd = String(dom.grafanaCloudRangeEnd?.value || state.grafanaCloud.periodEnd || '').trim();
+  if (dom.syncGrafanaCloudBtn) {
+    dom.syncGrafanaCloudBtn.disabled = true;
+    dom.syncGrafanaCloudBtn.textContent = 'Syncing...';
+  }
+  setGrafanaCloudSyncState({
+    running: true,
+    message: 'Syncing Grafana-Cloud billed usage...'
+  });
+  try {
+    const payload = await api('/api/platform/grafana-cloud/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        vendorId: vendorId === 'all' ? null : vendorId,
+        periodStart,
+        periodEnd
+      })
+    });
+    const succeeded = Number(payload?.summary?.succeeded || 0);
+    const failed = Number(payload?.summary?.failed || 0);
+    const parts = [`Sync complete (${succeeded} vendor(s) succeeded)`];
+    if (failed > 0) {
+      parts.push(`${failed} failed`);
+    }
+    showToast(parts.join(', ') + '.');
+    await loadGrafanaCloud();
+  } finally {
+    if (dom.syncGrafanaCloudBtn) {
+      dom.syncGrafanaCloudBtn.disabled = false;
+      dom.syncGrafanaCloudBtn.textContent = 'Sync now';
+    }
+  }
+}
+
+async function handleGrafanaCloudVendorChange() {
+  if (!dom.grafanaCloudVendorFilter) {
+    return;
+  }
+  state.grafanaCloud.selectedVendorId = String(dom.grafanaCloudVendorFilter.value || 'all').trim() || 'all';
+  await loadGrafanaCloud();
+}
+
+async function handleGrafanaCloudPresetClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('[data-grafana-cloud-preset]');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const preset = String(button.dataset.grafanaCloudPreset || '').trim();
+  const changed = applyGrafanaCloudPreset(preset);
+  if (!changed) {
+    return;
+  }
+  await loadGrafanaCloud();
+}
+
+async function handleGrafanaCloudRangeChange() {
+  const periodStart = String(dom.grafanaCloudRangeStart?.value || '').trim();
+  const periodEnd = String(dom.grafanaCloudRangeEnd?.value || '').trim();
+  if ((periodStart && !periodEnd) || (!periodStart && periodEnd)) {
+    setGrafanaCloudSyncState({
+      message: 'Select both From and To dates.',
+      error: false,
+      success: false
+    });
+    return;
+  }
+  state.grafanaCloud.periodStart = periodStart;
+  state.grafanaCloud.periodEnd = periodEnd;
+  state.grafanaCloud.rangePreset = resolveRangePresetFromValues(periodStart, periodEnd);
+  renderGrafanaCloudRangePresetButtons();
+  if (state.grafanaCloud.rangePreset !== 'custom') {
+    saveGrafanaCloudPreset(state.grafanaCloud.rangePreset);
+  }
+  await loadGrafanaCloud();
 }
 
 function normalizeCloudMetricsProvider(value) {
@@ -5829,20 +7548,17 @@ function renderCloudMetricsRows() {
             <td>${escapeHtml(formatDateTime(resource?.fetchedAt || null))}</td>
             <td>${metricStatus}</td>
           </tr>
-          ${
-            resourceExpanded
-              ? `
+          ${resourceExpanded
+            ? `
             <tr class="billing-detail-row">
               <td colspan="7">
                 <div class="billing-detail-wrap">
-                  ${
-                    metricError
-                      ? `<p class="muted negative">Metric read warning: ${escapeHtml(metricError)}</p>`
-                      : ''
-                  }
-                  ${
-                    metrics.length
-                      ? `
+                  ${metricError
+              ? `<p class="muted negative">Metric read warning: ${escapeHtml(metricError)}</p>`
+              : ''
+            }
+                  ${metrics.length
+              ? `
                     <table class="billing-detail-table cloud-metrics-metric-table">
                       <thead>
                         <tr>
@@ -5860,13 +7576,13 @@ function renderCloudMetricsRows() {
                       <tbody>${metricRows}</tbody>
                     </table>
                   `
-                      : '<p class="muted">No metric values returned for this resource in the latest window.</p>'
-                  }
+              : '<p class="muted">No metric values returned for this resource in the latest window.</p>'
+            }
                 </div>
               </td>
             </tr>
           `
-              : ''
+            : ''
           }
         `;
       })
@@ -6063,6 +7779,489 @@ function handleCloudMetricsTypeBodyClick(event) {
   }
 }
 
+function normalizeCloudDatabaseProvider(value, fallback = 'all') {
+  const normalized = String(value || '')
+    .trim()
+    .toLowerCase();
+  if (!normalized) {
+    return String(fallback || 'all')
+      .trim()
+      .toLowerCase();
+  }
+  return normalized;
+}
+
+function getCloudDatabaseProviderLabel(providerId) {
+  const provider = normalizeCloudDatabaseProvider(providerId, 'all');
+  if (provider === 'all') {
+    return 'All providers';
+  }
+  const selected = (Array.isArray(state.cloudDatabase.providers) ? state.cloudDatabase.providers : []).find(
+    (entry) => normalizeCloudDatabaseProvider(entry?.id) === provider
+  );
+  if (selected?.label) {
+    return String(selected.label);
+  }
+  return getProviderDisplayLabel(provider, provider.toUpperCase());
+}
+
+function setSelectedCloudDatabaseProvider(provider, options = {}) {
+  const normalized = normalizeCloudDatabaseProvider(provider, 'all');
+  state.cloudDatabase.selectedProvider = normalized;
+  if (options.persist !== false) {
+    saveCloudDatabaseProvider(normalized);
+  }
+}
+
+function setCloudDatabaseSyncState({ running = false, message = '', error = false, success = false } = {}) {
+  if (!dom.cloudDatabaseSyncStatus) {
+    return;
+  }
+  dom.cloudDatabaseSyncStatus.textContent = message || '';
+  dom.cloudDatabaseSyncStatus.classList.toggle('working', Boolean(running));
+  dom.cloudDatabaseSyncStatus.classList.toggle('error', !running && Boolean(error));
+  dom.cloudDatabaseSyncStatus.classList.toggle('success', !running && Boolean(success));
+}
+
+function buildCloudDatabaseRowKey(row = {}) {
+  const provider = normalizeCloudDatabaseProvider(row?.provider, 'other');
+  const resourceKey = String(row?.resourceId || row?.resourceName || '').trim().toLowerCase();
+  const accountKey = String(row?.accountId || '-').trim().toLowerCase();
+  return `${provider}:${accountKey}:${resourceKey}`;
+}
+
+function mapCloudDatabaseStatusToBadge(statusRaw) {
+  const status = String(statusRaw || '').trim().toLowerCase();
+  if (status === 'online') {
+    return buildStatusBadge('healthy');
+  }
+  if (status === 'issue') {
+    return buildStatusBadge('warning');
+  }
+  return buildStatusBadge('open');
+}
+
+function formatCloudDatabaseStorageValue(storage = {}) {
+  if (!storage || typeof storage !== 'object') {
+    return '-';
+  }
+  const value = Number(storage.value);
+  if (!Number.isFinite(value)) {
+    return '-';
+  }
+  const unit = String(storage.unit || '').trim().toLowerCase();
+  if (unit === 'bytes' || unit === 'byte') {
+    return formatBytes(value);
+  }
+  if (unit === 'percent') {
+    return formatPercent(value);
+  }
+  if (unit) {
+    return `${formatScaledNumber(value)} ${storage.unit}`;
+  }
+  return formatScaledNumber(value);
+}
+
+function filterCloudDatabaseRows() {
+  const provider = normalizeCloudDatabaseProvider(state.cloudDatabase.selectedProvider, 'all');
+  const searchText = String(state.cloudDatabase.searchText || '').trim().toLowerCase();
+  const rows = Array.isArray(state.cloudDatabase.rows) ? state.cloudDatabase.rows : [];
+
+  const filtered = rows.filter((row) => {
+    if (provider !== 'all' && normalizeCloudDatabaseProvider(row?.provider, 'other') !== provider) {
+      return false;
+    }
+    if (!searchText) {
+      return true;
+    }
+    const haystack = [
+      row?.providerLabel,
+      row?.engine,
+      row?.resourceName,
+      row?.resourceTypeLabel,
+      row?.resourceType,
+      row?.accountId,
+      row?.location,
+      row?.statusLabel,
+      row?.statusNote,
+      row?.securitySummary
+    ]
+      .map((value) => String(value || '').trim().toLowerCase())
+      .filter(Boolean)
+      .join(' | ');
+    return haystack.includes(searchText);
+  });
+
+  state.cloudDatabase.filteredRows = filtered;
+  return filtered;
+}
+
+function renderCloudDatabaseProviderTabs() {
+  if (!dom.cloudDatabaseProviderTabs) {
+    return;
+  }
+  const providers = Array.isArray(state.cloudDatabase.providers) ? state.cloudDatabase.providers : [];
+  const totalResources = Array.isArray(state.cloudDatabase.rows) ? state.cloudDatabase.rows.length : 0;
+  const selected = normalizeCloudDatabaseProvider(state.cloudDatabase.selectedProvider, 'all');
+  const options = [
+    {
+      id: 'all',
+      label: 'All providers',
+      resourceCount: totalResources,
+      issueCount: providers.reduce((sum, entry) => sum + Number(entry?.issueCount || 0), 0)
+    },
+    ...providers
+  ];
+
+  dom.cloudDatabaseProviderTabs.innerHTML = options
+    .map((provider) => {
+      const id = normalizeCloudDatabaseProvider(provider?.id, 'all');
+      const label = String(provider?.label || getCloudDatabaseProviderLabel(id) || id.toUpperCase());
+      const active = id === selected;
+      const resourceCount = Number(provider?.resourceCount || 0);
+      const issueCount = Number(provider?.issueCount || 0);
+      const titleParts = [];
+      if (provider?.lastSyncAt) {
+        titleParts.push(`Last sync: ${formatDateTime(provider.lastSyncAt)}`);
+      }
+      if (Number.isFinite(issueCount) && issueCount > 0) {
+        titleParts.push(`Issues: ${formatNumber(issueCount)}`);
+      }
+      return `
+        <button
+          type="button"
+          class="billing-preset-btn cloud-metrics-provider-btn ${active ? 'active' : ''}"
+          data-cloud-database-provider="${escapeHtml(id)}"
+          title="${escapeHtml(titleParts.join(' | '))}"
+        >
+          ${escapeHtml(label)}
+          <span class="cloud-metrics-provider-meta">${formatNumber(resourceCount)}</span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function renderCloudDatabaseSummaryCards(payload = {}) {
+  if (!dom.cloudDatabaseSummaryCards) {
+    return;
+  }
+  const summary = payload?.summary && typeof payload.summary === 'object' ? payload.summary : state.cloudDatabase.summary || {};
+  const filteredCount = Number(payload?.filteredResources || state.cloudDatabase.filteredRows?.length || 0);
+  const totalCount = Number(payload?.totalResources || state.cloudDatabase.rows?.length || 0);
+  const lastSyncAt = payload?.lastSyncAt || state.cloudDatabase.lastSyncAt;
+  const cards = [
+    { label: 'Databases (filtered)', value: formatNumber(filteredCount) },
+    { label: 'Databases (total)', value: formatNumber(totalCount) },
+    { label: 'Online', value: formatNumber(summary?.onlineCount || 0) },
+    { label: 'Issues', value: formatNumber(summary?.issueCount || 0) },
+    { label: 'Unknown', value: formatNumber(summary?.unknownCount || 0) },
+    { label: 'Transactions (24h)', value: formatNumber(summary?.totalTransactions24h || 0) },
+    { label: 'Last sync', value: escapeHtml(formatDateTime(lastSyncAt)) }
+  ];
+  dom.cloudDatabaseSummaryCards.innerHTML = cards
+    .map(
+      (card) => `
+        <article class="card">
+          <p class="label">${card.label}</p>
+          <p class="value">${card.value}</p>
+        </article>
+      `
+    )
+    .join('');
+}
+
+function renderCloudDatabaseRows() {
+  if (!dom.cloudDatabaseBody) {
+    return;
+  }
+
+  const rows = filterCloudDatabaseRows();
+  if (!rows.length) {
+    const hasRows = Array.isArray(state.cloudDatabase.rows) && state.cloudDatabase.rows.length > 0;
+    dom.cloudDatabaseBody.innerHTML = `
+      <tr>
+        <td colspan="11" class="muted">
+          ${hasRows ? 'No database rows match the current filters.' : 'No cloud database resources discovered yet. Click Sync now.'}
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  const htmlRows = [];
+  for (const row of rows) {
+    const rowKey = buildCloudDatabaseRowKey(row);
+    const expanded = state.cloudDatabase.expandedRowKeys.includes(rowKey);
+    const storageUsed = formatCloudDatabaseStorageValue(row?.storageUsed);
+    const storageAllocated = formatCloudDatabaseStorageValue(row?.storageAllocated);
+    const storageSummary = storageAllocated !== '-' ? `${storageUsed} / ${storageAllocated}` : storageUsed;
+    const securitySignals = Array.isArray(row?.securitySignals) ? row.securitySignals : [];
+    const securityBadge =
+      securitySignals.find((signal) => String(signal?.severity || '').trim().toLowerCase() === 'warning') !== undefined
+        ? buildStatusBadge('warning')
+        : securitySignals.length
+          ? buildStatusBadge('healthy')
+          : buildStatusBadge('open');
+
+    const metrics = Array.isArray(row?.metrics) ? row.metrics : [];
+    const metricRows = metrics
+      .map((metric) => {
+        const scale = resolveCloudMetricScale(metric);
+        return `
+          <tr>
+            <td>${escapeHtml(metric?.name || '-')}</td>
+            <td>${formatCloudMetricValue(metric?.value, scale)}</td>
+            <td>${escapeHtml(scale?.unitLabel || '-')}</td>
+            <td>${formatCloudMetricValue(metric?.average, scale)}</td>
+            <td>${formatCloudMetricValue(metric?.minimum, scale)}</td>
+            <td>${formatCloudMetricValue(metric?.maximum, scale)}</td>
+            <td>${formatCloudMetricValue(metric?.total, scale)}</td>
+            <td>${escapeHtml(formatDateTime(metric?.timestamp))}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const securityLines = securitySignals.length
+      ? securitySignals
+        .map((signal) => {
+          const severity = String(signal?.severity || '').trim().toLowerCase();
+          const className = severity === 'warning' ? 'status-badge warning' : 'status-badge healthy';
+          const label = String(signal?.label || signal?.key || 'signal').trim();
+          return `<span class="${className}">${escapeHtml(label)}</span>`;
+        })
+        .join(' ')
+      : '<span class="muted">No security signals collected.</span>';
+
+    htmlRows.push(`
+      <tr>
+        <td class="billing-expand-cell">
+          <button type="button" class="billing-expand-btn" data-cloud-database-row="${escapeHtml(rowKey)}">${expanded ? '-' : '+'}</button>
+        </td>
+        <td>${escapeHtml(row?.providerLabel || getCloudDatabaseProviderLabel(row?.provider))}</td>
+        <td>${escapeHtml(row?.engine || '-')}</td>
+        <td>${escapeHtml(row?.resourceName || '-')}</td>
+        <td>${formatNumber(row?.transactions24h || 0)}</td>
+        <td>${escapeHtml(storageSummary)}</td>
+        <td>${escapeHtml(formatPercent(row?.cpuPercent))}</td>
+        <td>${escapeHtml(formatPercent(row?.memoryPercent))}</td>
+        <td>${securityBadge}</td>
+        <td>${mapCloudDatabaseStatusToBadge(row?.status)}</td>
+        <td>${escapeHtml(formatDateTime(row?.fetchedAt || row?.updatedAt || null))}</td>
+      </tr>
+    `);
+
+    if (!expanded) {
+      continue;
+    }
+
+    htmlRows.push(`
+      <tr class="billing-detail-row">
+        <td colspan="11">
+          <div class="billing-detail-wrap">
+            <p class="muted">
+              <strong>Type:</strong> ${escapeHtml(row?.resourceTypeLabel || row?.resourceType || '-')}
+              &nbsp;|&nbsp; <strong>Account:</strong> ${escapeHtml(row?.accountId || '-')}
+              &nbsp;|&nbsp; <strong>Location:</strong> ${escapeHtml(row?.location || '-')}
+              &nbsp;|&nbsp; <strong>Storage used %:</strong> ${escapeHtml(formatPercent(row?.storageUsedPercent))}
+            </p>
+            <p class="muted"><strong>Status note:</strong> ${escapeHtml(row?.statusNote || '-')}</p>
+            <p class="muted"><strong>Security:</strong> ${securityLines}</p>
+            ${metrics.length
+        ? `
+              <table class="billing-detail-table cloud-metrics-metric-table">
+                <thead>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Unit</th>
+                    <th>Avg</th>
+                    <th>Min</th>
+                    <th>Max</th>
+                    <th>Total</th>
+                    <th>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>${metricRows}</tbody>
+              </table>
+            `
+        : '<p class="muted">No metric values returned for this resource in the latest fetch window.</p>'
+      }
+          </div>
+        </td>
+      </tr>
+    `);
+  }
+
+  dom.cloudDatabaseBody.innerHTML = htmlRows.join('');
+}
+
+function applyCloudDatabasePayload(payload = {}, options = {}) {
+  state.cloudDatabase.providers = Array.isArray(payload?.providers) ? payload.providers : [];
+  state.cloudDatabase.rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  state.cloudDatabase.summary = payload?.summary && typeof payload.summary === 'object' ? payload.summary : null;
+  state.cloudDatabase.syncStatus = payload?.syncStatus && typeof payload.syncStatus === 'object' ? payload.syncStatus : null;
+  state.cloudDatabase.lastSyncAt = payload?.lastSyncAt || null;
+
+  const requestedProvider = normalizeCloudDatabaseProvider(
+    payload?.provider || options.provider || state.cloudDatabase.selectedProvider || 'all',
+    'all'
+  );
+  const availableProviders = new Set(
+    ['all', ...state.cloudDatabase.providers.map((entry) => normalizeCloudDatabaseProvider(entry?.id, 'all'))]
+  );
+  const selectedProvider = availableProviders.has(requestedProvider) ? requestedProvider : 'all';
+  setSelectedCloudDatabaseProvider(selectedProvider, {
+    persist: options.persist !== false
+  });
+
+  const rowKeys = new Set(state.cloudDatabase.rows.map((row) => buildCloudDatabaseRowKey(row)));
+  state.cloudDatabase.expandedRowKeys = state.cloudDatabase.expandedRowKeys.filter((key) => rowKeys.has(key));
+
+  renderCloudDatabaseProviderTabs();
+  renderCloudDatabaseSummaryCards(payload);
+  renderCloudDatabaseRows();
+
+  if (dom.cloudDatabaseScopeHint) {
+    const providerLabel = getCloudDatabaseProviderLabel(selectedProvider);
+    const filteredResources = Number(payload?.filteredResources || state.cloudDatabase.filteredRows.length || 0);
+    const totalResources = Number(payload?.totalResources || state.cloudDatabase.rows.length || 0);
+    const lastSyncAt = payload?.lastSyncAt ? formatDateTime(payload.lastSyncAt) : 'Not synced yet';
+    dom.cloudDatabaseScopeHint.textContent = `${providerLabel} | ${formatNumber(filteredResources)} shown / ${formatNumber(
+      totalResources
+    )} discovered | Last sync ${lastSyncAt}.`;
+  }
+}
+
+async function loadCloudDatabase(options = {}) {
+  const selectedProvider = normalizeCloudDatabaseProvider(
+    options.provider || state.cloudDatabase.selectedProvider || readSavedCloudDatabaseProvider() || 'all',
+    'all'
+  );
+  const payload = await api(`/api/platform/cloud-database?provider=${encodeURIComponent(selectedProvider)}`);
+  applyCloudDatabasePayload(payload, {
+    provider: selectedProvider,
+    persist: options.persist !== false
+  });
+
+  const syncStatus = payload?.syncStatus || null;
+  if (syncStatus?.running) {
+    setCloudDatabaseSyncState({
+      running: true,
+      message: `Sync in progress for ${getCloudDatabaseProviderLabel(selectedProvider)}...`
+    });
+    return;
+  }
+  if (syncStatus?.lastStatus === 'error') {
+    setCloudDatabaseSyncState({
+      error: true,
+      message: syncStatus?.lastError ? `Sync error: ${syncStatus.lastError}` : 'Latest sync failed.'
+    });
+    return;
+  }
+  const nextRun = syncStatus?.nextRunAt ? formatDateTime(syncStatus.nextRunAt) : null;
+  setCloudDatabaseSyncState({
+    success: true,
+    message: nextRun ? `Auto-sync every 5 minutes. Next run: ${nextRun}.` : 'Cloud Database loaded.'
+  });
+}
+
+async function syncCloudDatabase() {
+  const selectedProvider = normalizeCloudDatabaseProvider(state.cloudDatabase.selectedProvider || 'all', 'all');
+  if (dom.syncCloudDatabaseBtn) {
+    dom.syncCloudDatabaseBtn.disabled = true;
+    dom.syncCloudDatabaseBtn.textContent = 'Syncing...';
+  }
+  if (dom.refreshCloudDatabaseBtn) {
+    dom.refreshCloudDatabaseBtn.disabled = true;
+  }
+  setCloudDatabaseSyncState({
+    running: true,
+    message: `Syncing ${getCloudDatabaseProviderLabel(selectedProvider)} database metrics...`
+  });
+  try {
+    const payload = await api('/api/platform/cloud-database/sync', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: selectedProvider
+      })
+    });
+    applyCloudDatabasePayload(payload, {
+      provider: selectedProvider,
+      persist: true
+    });
+    setCloudDatabaseSyncState({
+      success: true,
+      message: 'Cloud Database sync completed.'
+    });
+    showToast('Cloud Database sync completed.');
+  } finally {
+    if (dom.syncCloudDatabaseBtn) {
+      dom.syncCloudDatabaseBtn.disabled = false;
+      dom.syncCloudDatabaseBtn.textContent = 'Sync now';
+    }
+    if (dom.refreshCloudDatabaseBtn) {
+      dom.refreshCloudDatabaseBtn.disabled = false;
+    }
+  }
+}
+
+function handleCloudDatabaseProviderTabsClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('[data-cloud-database-provider]');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const provider = normalizeCloudDatabaseProvider(button.dataset.cloudDatabaseProvider || '', 'all');
+  setSelectedCloudDatabaseProvider(provider, { persist: true });
+  state.cloudDatabase.expandedRowKeys = [];
+  void loadCloudDatabase({
+    provider,
+    persist: true
+  }).catch((error) => {
+    showToast(error.message || 'Failed to switch Cloud Database provider.', true);
+  });
+}
+
+function handleCloudDatabaseBodyClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('[data-cloud-database-row]');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const rowKey = String(button.dataset.cloudDatabaseRow || '').trim();
+  if (!rowKey) {
+    return;
+  }
+  const expanded = state.cloudDatabase.expandedRowKeys.includes(rowKey);
+  state.cloudDatabase.expandedRowKeys = expanded
+    ? state.cloudDatabase.expandedRowKeys.filter((key) => key !== rowKey)
+    : [...state.cloudDatabase.expandedRowKeys, rowKey];
+  renderCloudDatabaseRows();
+}
+
+function handleCloudDatabaseSearchInput() {
+  state.cloudDatabase.searchText = String(dom.cloudDatabaseSearchInput?.value || '').trim();
+  saveCloudDatabaseSearchText(state.cloudDatabase.searchText);
+  renderCloudDatabaseRows();
+}
+
+function clearCloudDatabaseFilters() {
+  state.cloudDatabase.searchText = '';
+  saveCloudDatabaseSearchText(state.cloudDatabase.searchText);
+  if (dom.cloudDatabaseSearchInput) {
+    dom.cloudDatabaseSearchInput.value = '';
+  }
+  renderCloudDatabaseRows();
+}
+
 function renderLiveGroupFilterOptions() {
   if (!dom.liveGroupFilter) {
     return;
@@ -6070,9 +8269,20 @@ function renderLiveGroupFilterOptions() {
 
   const groups = Array.isArray(state.live.availableGroups) ? state.live.availableGroups : [];
   const selectedGroupName = normalizeLiveGroupName(state.live.selectedGroupName);
+  const groupSearchText = String(state.live.groupSearchText || '').trim().toLowerCase();
+  let visibleGroups = groups.filter((groupName) => {
+    if (!groupSearchText) {
+      return true;
+    }
+    return String(groupName || '').toLowerCase().includes(groupSearchText);
+  });
+  if (selectedGroupName !== 'all' && groups.includes(selectedGroupName) && !visibleGroups.includes(selectedGroupName)) {
+    visibleGroups = [selectedGroupName, ...visibleGroups];
+  }
+
   const options = [
     { value: 'all', label: 'All groups' },
-    ...groups.map((groupName) => ({
+    ...visibleGroups.map((groupName) => ({
       value: groupName,
       label: groupName
     }))
@@ -6256,10 +8466,22 @@ function handleLiveSearchInput() {
   renderLiveRows();
 }
 
+function handleLiveGroupSearchInput() {
+  state.live.groupSearchText = String(dom.liveGroupSearchInput?.value || '').trim();
+  saveLiveGroupSearchText(state.live.groupSearchText);
+  renderLiveGroupFilterOptions();
+  renderLiveRows();
+}
+
 function clearLiveFilters() {
   if (!normalizeLivePinnedGroupName(state.live.pinnedGroupName)) {
     state.live.selectedGroupName = 'all';
     saveLiveGroupName('all');
+  }
+  state.live.groupSearchText = '';
+  saveLiveGroupSearchText('');
+  if (dom.liveGroupSearchInput) {
+    dom.liveGroupSearchInput.value = '';
   }
   state.live.searchText = '';
   saveLiveSearchText('');
@@ -6269,6 +8491,438 @@ function clearLiveFilters() {
   void loadLive({ refresh: true }).catch((error) => {
     showToast(error.message || 'Failed to reload VSAx live data.', true);
   });
+}
+
+function buildVpnStatusPill(row = {}) {
+  const isOnline = Boolean(row?.isOnline);
+  const statusText = isOnline ? 'online' : 'issue';
+  return `
+    <span class="vpn-status-pill">
+      <span class="vpn-status-dot ${isOnline ? 'online' : 'issue'}" aria-hidden="true"></span>
+      ${escapeHtml(statusText)}
+    </span>
+  `;
+}
+
+function renderFirewallSyncStatus() {
+  if (!dom.firewallSyncStatus) {
+    return;
+  }
+  const sync = state.firewall.sync || {};
+  const parts = [];
+  if (sync.running) {
+    parts.push('Sync running...');
+  } else if (sync.lastStatus) {
+    parts.push(`Last status: ${String(sync.lastStatus).toUpperCase()}`);
+  }
+  if (sync.lastFinishedAt) {
+    parts.push(`Updated ${formatDateTime(sync.lastFinishedAt)}`);
+  }
+  if (sync.nextRunAt) {
+    parts.push(`Next run ${formatDateTime(sync.nextRunAt)}`);
+  }
+  dom.firewallSyncStatus.textContent = parts.join(' | ') || 'No firewall sync data yet.';
+}
+
+function renderFirewallCards() {
+  if (!dom.firewallCards) {
+    return;
+  }
+  const hosts = Array.isArray(state.firewall.hosts) ? state.firewall.hosts : [];
+  const totalHosts = hosts.length;
+  const totalServices = hosts.reduce((sum, row) => sum + Number(row?.serviceCount || 0), 0);
+  const totalVpn = hosts.reduce((sum, row) => sum + Number(row?.vpnCount || 0), 0);
+  const totalIssues = hosts.reduce((sum, row) => sum + Number(row?.issueCount || 0), 0);
+
+  const cards = [
+    { label: 'Hosts', value: formatNumber(totalHosts) },
+    { label: 'Services', value: formatNumber(totalServices) },
+    { label: 'VPN services', value: formatNumber(totalVpn) },
+    { label: 'Issues', value: formatNumber(totalIssues) }
+  ];
+
+  dom.firewallCards.innerHTML = cards
+    .map(
+      (card) => `
+      <article class="card">
+        <p class="label">${escapeHtml(card.label)}</p>
+        <p class="value">${escapeHtml(card.value)}</p>
+      </article>
+    `
+    )
+    .join('');
+}
+
+function renderFirewallHostFilterOptions() {
+  if (!dom.firewallHostFilter) {
+    return;
+  }
+  const hosts = Array.from(new Set((state.firewall.hosts || []).map((row) => String(row?.hostId || '').trim()).filter(Boolean))).sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true })
+  );
+  const selected = String(state.firewall.hostFilter || 'all').trim() || 'all';
+  const options = [{ value: 'all', label: 'All hosts' }, ...hosts.map((hostId) => ({ value: hostId, label: hostId }))];
+
+  dom.firewallHostFilter.innerHTML = options
+    .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+    .join('');
+
+  const allowed = new Set(options.map((option) => option.value));
+  dom.firewallHostFilter.value = allowed.has(selected) ? selected : 'all';
+  state.firewall.hostFilter = dom.firewallHostFilter.value;
+}
+
+function getFilteredFirewallIssueRows() {
+  const hostFilter = String(state.firewall.hostFilter || 'all').trim();
+  const searchText = String(state.firewall.searchText || '').trim().toLowerCase();
+  const rows = Array.isArray(state.firewall.issueRows) ? state.firewall.issueRows : [];
+  return rows.filter((row) => {
+    const hostMatch = hostFilter === 'all' || String(row?.hostId || '') === hostFilter;
+    if (!hostMatch) {
+      return false;
+    }
+    if (!searchText) {
+      return true;
+    }
+    const haystack = [
+      row?.hostId,
+      row?.serviceDescription,
+      row?.gatewayIp,
+      row?.summaryText,
+      row?.stateLabel
+    ]
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(searchText);
+  });
+}
+
+function renderFirewallSummaryRows() {
+  if (!dom.firewallSummaryBody) {
+    return;
+  }
+  const hostFilter = String(state.firewall.hostFilter || 'all').trim();
+  const rows = (state.firewall.hosts || []).filter((row) => hostFilter === 'all' || String(row?.hostId || '') === hostFilter);
+  if (!rows.length) {
+    dom.firewallSummaryBody.innerHTML = `
+      <tr class="live-empty-row">
+        <td colspan="7">No firewall host stats available.</td>
+      </tr>
+    `;
+    return;
+  }
+  dom.firewallSummaryBody.innerHTML = rows
+    .map(
+      (row) => `
+      <tr>
+        <td>${escapeHtml(row.hostId || '-')}</td>
+        <td>${formatNumber(row.serviceCount || 0)}</td>
+        <td>${formatNumber(row.vpnCount || 0)}</td>
+        <td>${formatNumber(row.healthyCount || 0)}</td>
+        <td>${formatNumber(row.issueCount || 0)}</td>
+        <td>${formatNumber(row.vpnTransmittingCount || 0)}</td>
+        <td>${formatDateTime(row.updatedAt)}</td>
+      </tr>
+    `
+    )
+    .join('');
+}
+
+function renderFirewallIssueRows() {
+  if (!dom.firewallIssuesBody) {
+    return;
+  }
+  const rows = getFilteredFirewallIssueRows().slice(0, 1000);
+  if (!rows.length) {
+    dom.firewallIssuesBody.innerHTML = `
+      <tr class="live-empty-row">
+        <td colspan="6">No matching firewall service issues.</td>
+      </tr>
+    `;
+    return;
+  }
+  dom.firewallIssuesBody.innerHTML = rows
+    .map(
+      (row) => `
+      <tr>
+        <td>${escapeHtml(row.hostId || '-')}</td>
+        <td>${escapeHtml(row.serviceDescription || '-')}</td>
+        <td>${escapeHtml(row.gatewayIp || '-')}</td>
+        <td>${buildStatusBadge(row.stateLabel || 'unknown')}</td>
+        <td>${escapeHtml(row.summaryText || '-')}</td>
+        <td>${formatDateTime(row.updatedAt)}</td>
+      </tr>
+    `
+    )
+    .join('');
+}
+
+function renderFirewallView() {
+  renderFirewallSyncStatus();
+  renderFirewallCards();
+  renderFirewallHostFilterOptions();
+  renderFirewallSummaryRows();
+  renderFirewallIssueRows();
+}
+
+async function loadFirewall(options = {}) {
+  const refresh = Boolean(options.refresh);
+  const query = new URLSearchParams();
+  if (refresh) {
+    query.set('refresh', 'true');
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : '';
+  const payload = await api(`/api/platform/firewall${suffix}`);
+
+  state.firewall.hosts = Array.isArray(payload.hosts) ? payload.hosts : [];
+  state.firewall.services = Array.isArray(payload.services) ? payload.services : [];
+  state.firewall.issueRows = Array.isArray(payload.issueRows) ? payload.issueRows : [];
+  state.firewall.sync = payload.sync && typeof payload.sync === 'object' ? payload.sync : null;
+  state.firewall.config = payload.config && typeof payload.config === 'object' ? payload.config : null;
+
+  renderFirewallView();
+}
+
+async function syncFirewallNow() {
+  const payload = await api('/api/platform/firewall/sync', {
+    method: 'POST',
+    body: JSON.stringify({})
+  });
+  const summary = payload?.summary || payload?.sync?.lastSummary || null;
+  if (summary?.hosts?.length) {
+    showToast(`Firewall sync completed for ${summary.hosts.length} host(s).`);
+  } else {
+    showToast('Firewall sync completed.');
+  }
+  await loadFirewall();
+  await loadVpn();
+}
+
+function renderVpnHostFilterOptions() {
+  if (!dom.vpnHostFilter) {
+    return;
+  }
+  const hosts = Array.from(
+    new Set((state.vpn.rows || []).map((row) => String(row?.hostId || '').trim()).filter(Boolean))
+  ).sort((left, right) => left.localeCompare(right, undefined, { sensitivity: 'base', numeric: true }));
+  const selected = String(state.vpn.hostFilter || 'all').trim() || 'all';
+  const options = [{ value: 'all', label: 'All hosts' }, ...hosts.map((hostId) => ({ value: hostId, label: hostId }))];
+
+  dom.vpnHostFilter.innerHTML = options
+    .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+    .join('');
+  const available = new Set(options.map((option) => option.value));
+  dom.vpnHostFilter.value = available.has(selected) ? selected : 'all';
+  state.vpn.hostFilter = dom.vpnHostFilter.value;
+}
+
+function getFilteredVpnRows() {
+  const hostFilter = String(state.vpn.hostFilter || 'all').trim();
+  const searchText = String(state.vpn.searchText || '').trim().toLowerCase();
+  const rows = Array.isArray(state.vpn.rows) ? state.vpn.rows : [];
+  return rows.filter((row) => {
+    const hostMatch = hostFilter === 'all' || String(row?.hostId || '') === hostFilter;
+    if (!hostMatch) {
+      return false;
+    }
+    if (!searchText) {
+      return true;
+    }
+    const haystack = [
+      row?.hostId,
+      row?.vpnNumber,
+      row?.gatewayIp,
+      row?.serviceDescription,
+      (row?.accountTags || []).join(','),
+      row?.notes,
+      row?.summaryText
+    ]
+      .map((value) => String(value || '').toLowerCase())
+      .join(' ');
+    return haystack.includes(searchText);
+  });
+}
+
+function renderVpnRows() {
+  if (!dom.vpnBody) {
+    return;
+  }
+  const rows = getFilteredVpnRows();
+  const totalRows = Array.isArray(state.vpn.rows) ? state.vpn.rows.length : 0;
+
+  if (!rows.length) {
+    dom.vpnBody.innerHTML = `
+      <tr class="live-empty-row">
+        <td colspan="10">No VPN rows match the selected filters.</td>
+      </tr>
+    `;
+  } else {
+    dom.vpnBody.innerHTML = rows
+      .map((row) => {
+        const gatewayIp = String(row?.gatewayIp || '').trim();
+        const gatewayEscaped = escapeHtml(gatewayIp || '');
+        const saveDisabled = gatewayIp ? '' : 'disabled';
+        const transmittingText = row?.transmitting === null || row?.transmitting === undefined ? '-' : row.transmitting ? 'Yes' : 'No';
+        return `
+          <tr data-vpn-gateway-ip="${gatewayEscaped}">
+            <td>${escapeHtml(row.hostId || '-')}</td>
+            <td><input class="vpn-meta-input" data-vpn-field="vpn-number" value="${escapeHtml(row.vpnNumber || '')}" placeholder="VPN number" /></td>
+            <td>${gatewayEscaped || '-'}</td>
+            <td>${escapeHtml(row.serviceDescription || '-')}</td>
+            <td>${buildVpnStatusPill(row)}</td>
+            <td>${escapeHtml(transmittingText)}</td>
+            <td><input class="vpn-meta-input tags" data-vpn-field="account-tags" value="${escapeHtml((row.accountTags || []).join(', '))}" placeholder="tag1, tag2" /></td>
+            <td><input class="vpn-meta-input" data-vpn-field="notes" value="${escapeHtml(row.notes || '')}" placeholder="Notes" /></td>
+            <td>${formatDateTime(row.updatedAt)}</td>
+            <td><button type="button" class="btn secondary tag-edit-btn" data-vpn-save="${gatewayEscaped}" ${saveDisabled}>Save</button></td>
+          </tr>
+        `;
+      })
+      .join('');
+  }
+
+  if (dom.vpnScopeHint) {
+    const hostLabel = String(state.vpn.hostFilter || 'all') === 'all' ? 'All hosts' : state.vpn.hostFilter;
+    dom.vpnScopeHint.textContent = `${rows.length}/${totalRows} VPN service(s) | ${hostLabel}`;
+  }
+}
+
+function renderVpnView() {
+  renderVpnHostFilterOptions();
+  if (dom.vpnSortSelect) {
+    dom.vpnSortSelect.value = normalizeVpnSortValue(state.vpn.sortBy);
+  }
+  renderVpnRows();
+}
+
+async function loadVpn(options = {}) {
+  const refresh = Boolean(options.refresh);
+  const query = new URLSearchParams();
+  query.set('sortBy', normalizeVpnSortValue(state.vpn.sortBy));
+  if (refresh) {
+    query.set('refresh', 'true');
+  }
+  const payload = await api(`/api/platform/vpn?${query.toString()}`);
+  state.vpn.rows = Array.isArray(payload.rows) ? payload.rows : [];
+  renderVpnView();
+}
+
+async function saveVpnMetadataForRow(rowElement) {
+  const row = rowElement instanceof HTMLElement ? rowElement : null;
+  if (!row) {
+    return;
+  }
+  const gatewayIp = String(row.getAttribute('data-vpn-gateway-ip') || '').trim();
+  if (!gatewayIp) {
+    throw new Error('Gateway IP is required to save VPN metadata.');
+  }
+  const vpnNumberInput = row.querySelector('input[data-vpn-field=\"vpn-number\"]');
+  const accountTagsInput = row.querySelector('input[data-vpn-field=\"account-tags\"]');
+  const notesInput = row.querySelector('input[data-vpn-field=\"notes\"]');
+
+  const payload = await api('/api/platform/vpn/metadata', {
+    method: 'PUT',
+    body: JSON.stringify({
+      gatewayIp,
+      vpnNumber: vpnNumberInput instanceof HTMLInputElement ? vpnNumberInput.value : '',
+      accountTags: accountTagsInput instanceof HTMLInputElement ? accountTagsInput.value : '',
+      notes: notesInput instanceof HTMLInputElement ? notesInput.value : ''
+    })
+  });
+
+  const metadata = payload?.metadata || {};
+  const normalizedGateway = String(metadata.gatewayIp || gatewayIp).trim().toLowerCase();
+  state.vpn.rows = state.vpn.rows.map((item) => {
+    if (String(item?.gatewayIp || '').trim().toLowerCase() !== normalizedGateway) {
+      return item;
+    }
+    return {
+      ...item,
+      vpnNumber: metadata.vpnNumber || '',
+      accountTags: Array.isArray(metadata.accountTags) ? metadata.accountTags : [],
+      notes: metadata.notes || '',
+      metadataUpdatedAt: metadata.updatedAt || item.metadataUpdatedAt || null
+    };
+  });
+  renderVpnRows();
+  showToast(`Saved VPN metadata for ${metadata.gatewayIp || gatewayIp}.`);
+}
+
+function handleFirewallHostFilterChange() {
+  if (!dom.firewallHostFilter) {
+    return;
+  }
+  state.firewall.hostFilter = String(dom.firewallHostFilter.value || 'all').trim() || 'all';
+  saveFirewallHostFilter(state.firewall.hostFilter);
+  renderFirewallSummaryRows();
+  renderFirewallIssueRows();
+}
+
+function handleFirewallSearchInput() {
+  state.firewall.searchText = String(dom.firewallSearchInput?.value || '').trim();
+  saveFirewallSearchText(state.firewall.searchText);
+  renderFirewallIssueRows();
+}
+
+function handleVpnSearchInput() {
+  state.vpn.searchText = String(dom.vpnSearchInput?.value || '').trim();
+  saveVpnSearchText(state.vpn.searchText);
+  renderVpnRows();
+}
+
+function handleVpnHostFilterChange() {
+  if (!dom.vpnHostFilter) {
+    return;
+  }
+  state.vpn.hostFilter = String(dom.vpnHostFilter.value || 'all').trim() || 'all';
+  saveVpnHostFilter(state.vpn.hostFilter);
+  renderVpnRows();
+}
+
+function handleVpnSortChange() {
+  if (!dom.vpnSortSelect) {
+    return;
+  }
+  state.vpn.sortBy = normalizeVpnSortValue(dom.vpnSortSelect.value || 'status');
+  saveVpnSort(state.vpn.sortBy);
+  void loadVpn().catch((error) => {
+    showToast(error.message || 'Failed to sort VPN rows.', true);
+  });
+}
+
+function clearVpnFilters() {
+  state.vpn.hostFilter = 'all';
+  state.vpn.searchText = '';
+  if (dom.vpnHostFilter) {
+    dom.vpnHostFilter.value = 'all';
+  }
+  if (dom.vpnSearchInput) {
+    dom.vpnSearchInput.value = '';
+  }
+  saveVpnHostFilter('all');
+  saveVpnSearchText('');
+  renderVpnRows();
+}
+
+async function handleVpnTableClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  const button = target.closest('[data-vpn-save]');
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const row = button.closest('tr');
+  if (!(row instanceof HTMLElement)) {
+    return;
+  }
+  button.setAttribute('disabled', 'disabled');
+  try {
+    await saveVpnMetadataForRow(row);
+  } finally {
+    button.removeAttribute('disabled');
+  }
 }
 
 async function loadSecurity() {
@@ -6569,6 +9223,19 @@ function bindEvents() {
         });
         return;
       }
+      if (view === 'storage') {
+        const target = event.target;
+        const clickedChevron = target instanceof HTMLElement && target.closest('#storageNavChevron');
+        const activeView = getActiveViewName();
+        if (clickedChevron || activeView === 'storage') {
+          setStorageNavExpanded(!state.storage.navExpanded);
+          return;
+        }
+        setStorageNavExpanded(true);
+        setActiveView('storage');
+        setStorageEmbedProviderPreference(state.storage.selectedProvider, { persist: false });
+        return;
+      }
       if (view === 'live') {
         const target = event.target;
         const clickedChevron = target instanceof HTMLElement && target.closest('#liveNavChevron');
@@ -6605,6 +9272,9 @@ function bindEvents() {
   }
 
   document.getElementById('refreshOverviewBtn').addEventListener('click', runSafe(loadOverview));
+  if (dom.overviewBillingRangePresets) {
+    dom.overviewBillingRangePresets.addEventListener('click', runSafe(handleOverviewBillingPresetClick));
+  }
   if (dom.exportAllVendorsBtn) {
     dom.exportAllVendorsBtn.addEventListener('click', runSafe(exportAllVendors));
   }
@@ -6631,6 +9301,42 @@ function bindEvents() {
   if (dom.cloudMetricsTypeBody) {
     dom.cloudMetricsTypeBody.addEventListener('click', runSafe(handleCloudMetricsTypeBodyClick));
   }
+  if (dom.refreshCloudDatabaseBtn) {
+    dom.refreshCloudDatabaseBtn.addEventListener('click', runSafe(loadCloudDatabase));
+  }
+  if (dom.syncCloudDatabaseBtn) {
+    dom.syncCloudDatabaseBtn.addEventListener('click', runSafe(syncCloudDatabase));
+  }
+  if (dom.cloudDatabaseProviderTabs) {
+    dom.cloudDatabaseProviderTabs.addEventListener('click', runSafe(handleCloudDatabaseProviderTabsClick));
+  }
+  if (dom.cloudDatabaseBody) {
+    dom.cloudDatabaseBody.addEventListener('click', runSafe(handleCloudDatabaseBodyClick));
+  }
+  if (dom.cloudDatabaseSearchInput) {
+    dom.cloudDatabaseSearchInput.addEventListener('input', handleCloudDatabaseSearchInput);
+  }
+  if (dom.clearCloudDatabaseFiltersBtn) {
+    dom.clearCloudDatabaseFiltersBtn.addEventListener('click', clearCloudDatabaseFilters);
+  }
+  if (dom.refreshGrafanaCloudBtn) {
+    dom.refreshGrafanaCloudBtn.addEventListener('click', runSafe(loadGrafanaCloud));
+  }
+  if (dom.syncGrafanaCloudBtn) {
+    dom.syncGrafanaCloudBtn.addEventListener('click', runSafe(syncGrafanaCloud));
+  }
+  if (dom.grafanaCloudVendorFilter) {
+    dom.grafanaCloudVendorFilter.addEventListener('change', runSafe(handleGrafanaCloudVendorChange));
+  }
+  if (dom.grafanaCloudRangePresets) {
+    dom.grafanaCloudRangePresets.addEventListener('click', runSafe(handleGrafanaCloudPresetClick));
+  }
+  if (dom.grafanaCloudRangeStart) {
+    dom.grafanaCloudRangeStart.addEventListener('change', runSafe(handleGrafanaCloudRangeChange));
+  }
+  if (dom.grafanaCloudRangeEnd) {
+    dom.grafanaCloudRangeEnd.addEventListener('change', runSafe(handleGrafanaCloudRangeChange));
+  }
   if (dom.refreshLiveBtn) {
     dom.refreshLiveBtn.addEventListener(
       'click',
@@ -6642,16 +9348,64 @@ function bindEvents() {
   if (dom.liveGroupFilter) {
     dom.liveGroupFilter.addEventListener('change', handleLiveGroupFilterChange);
   }
+  if (dom.liveGroupSearchInput) {
+    dom.liveGroupSearchInput.addEventListener('input', handleLiveGroupSearchInput);
+  }
   if (dom.liveSearchInput) {
     dom.liveSearchInput.addEventListener('input', handleLiveSearchInput);
   }
   if (dom.clearLiveFiltersBtn) {
     dom.clearLiveFiltersBtn.addEventListener('click', clearLiveFilters);
   }
+  if (dom.refreshFirewallBtn) {
+    dom.refreshFirewallBtn.addEventListener('click', runSafe(() => loadFirewall()));
+  }
+  if (dom.syncFirewallBtn) {
+    dom.syncFirewallBtn.addEventListener('click', runSafe(syncFirewallNow));
+  }
+  if (dom.firewallHostFilter) {
+    dom.firewallHostFilter.addEventListener('change', handleFirewallHostFilterChange);
+  }
+  if (dom.firewallSearchInput) {
+    dom.firewallSearchInput.addEventListener('input', handleFirewallSearchInput);
+  }
+  if (dom.refreshVpnBtn) {
+    dom.refreshVpnBtn.addEventListener('click', runSafe(() => loadVpn()));
+  }
+  if (dom.vpnSearchInput) {
+    dom.vpnSearchInput.addEventListener('input', handleVpnSearchInput);
+  }
+  if (dom.vpnHostFilter) {
+    dom.vpnHostFilter.addEventListener('change', handleVpnHostFilterChange);
+  }
+  if (dom.vpnSortSelect) {
+    dom.vpnSortSelect.addEventListener('change', handleVpnSortChange);
+  }
+  if (dom.clearVpnFiltersBtn) {
+    dom.clearVpnFiltersBtn.addEventListener('click', clearVpnFilters);
+  }
+  if (dom.vpnBody) {
+    dom.vpnBody.addEventListener('click', runSafe(handleVpnTableClick));
+  }
   document.getElementById('refreshSecurityBtn').addEventListener('click', runSafe(loadSecurity));
 
   document.getElementById('vendorForm').addEventListener('submit', runSafe(submitVendorForm));
   document.getElementById('vendorsBody').addEventListener('click', runSafe(handleVendorTableClick));
+  if (dom.refreshAppConfigBtn) {
+    dom.refreshAppConfigBtn.addEventListener('click', runSafe(loadAppConfig));
+  }
+  if (dom.appConfigForm) {
+    dom.appConfigForm.addEventListener('submit', runSafe(saveAppConfig));
+  }
+  if (dom.exportAppConfigBtn) {
+    dom.exportAppConfigBtn.addEventListener('click', runSafe(exportAppConfig));
+  }
+  if (dom.importAppConfigBtn) {
+    dom.importAppConfigBtn.addEventListener('click', openImportAppConfigPicker);
+  }
+  if (dom.importAppConfigInput) {
+    dom.importAppConfigInput.addEventListener('change', runSafe(importAppConfigFromFile));
+  }
   if (dom.refreshAdminUsersBtn) {
     dom.refreshAdminUsersBtn.addEventListener('click', runSafe(loadAdminUsers));
   }
@@ -6674,6 +9428,25 @@ function bindEvents() {
   if (dom.billingNavGroup) {
     dom.billingNavGroup.addEventListener('click', runSafe(handleBillingScopeClick));
   }
+  if (dom.storageNavGroup) {
+    dom.storageNavGroup.addEventListener(
+      'click',
+      runSafe(async (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return;
+        }
+        const button = target.closest('[data-storage-provider]');
+        if (!(button instanceof HTMLElement)) {
+          return;
+        }
+        const provider = normalizeStorageProvider(button.dataset.storageProvider || 'unified');
+        setStorageEmbedProviderPreference(provider, { persist: true });
+        setStorageNavExpanded(true);
+        setActiveView('storage');
+      })
+    );
+  }
   if (dom.liveNavGroup) {
     dom.liveNavGroup.addEventListener('click', runSafe(handleLiveNavGroupClick));
   }
@@ -6694,6 +9467,9 @@ function bindEvents() {
   }
   if (dom.billingTypeSort) {
     dom.billingTypeSort.addEventListener('change', runSafe(handleBillingTypeSortChange));
+  }
+  if (dom.billingAccountSort) {
+    dom.billingAccountSort.addEventListener('change', runSafe(handleBillingAccountSortChange));
   }
   if (dom.billingResourceBody) {
     dom.billingResourceBody.addEventListener('click', runSafe(handleBillingResourceBodyClick));
@@ -6716,6 +9492,9 @@ function bindEvents() {
   }
   if (dom.refreshTagsBtn) {
     dom.refreshTagsBtn.addEventListener('click', runSafe(loadTags));
+  }
+  if (dom.tagsSearchInput) {
+    dom.tagsSearchInput.addEventListener('input', handleTagsSearchInput);
   }
   if (dom.syncAwsTagsBtn) {
     dom.syncAwsTagsBtn.addEventListener('click', runSafe(syncAwsTags));
@@ -6854,31 +9633,69 @@ async function init() {
   await loadAuthSession();
   state.billing.selectedScopeId = normalizeBillingScopeId(readSavedBillingScope());
   state.billing.navExpanded = readSavedBillingNavExpanded();
+  state.storage.navExpanded = readSavedStorageNavExpanded();
+  state.storage.selectedProvider = readSavedStorageProvider();
   state.admin.navExpanded = readSavedAdminNavExpanded();
   state.live.navExpanded = readSavedLiveNavExpanded();
   state.billing.snapshotsCollapsed = readSavedBillingSnapshotsCollapsed();
   state.billing.trendCollapsed = readSavedBillingTrendCollapsed();
   state.cloudMetrics.selectedProvider = normalizeCloudMetricsProvider(readSavedCloudMetricsProvider() || 'azure');
+  state.cloudDatabase.selectedProvider = normalizeCloudDatabaseProvider(readSavedCloudDatabaseProvider() || 'all', 'all');
+  state.cloudDatabase.searchText = readSavedCloudDatabaseSearchText();
   state.live.selectedGroupName = normalizeLiveGroupName(readSavedLiveGroupName());
   state.live.pinnedGroupName = normalizeLivePinnedGroupName(readSavedLivePinnedGroupName());
+  state.live.groupSearchText = readSavedLiveGroupSearchText();
   state.live.searchText = readSavedLiveSearchText();
+  state.firewall.searchText = readSavedFirewallSearchText();
+  state.firewall.hostFilter = readSavedFirewallHostFilter();
+  state.vpn.searchText = readSavedVpnSearchText();
+  state.vpn.hostFilter = readSavedVpnHostFilter();
+  state.vpn.sortBy = readSavedVpnSort();
   state.billing.searchText = readSavedBillingSearchText();
+  state.billing.accountSort = parseBillingAccountSortValue(readSavedBillingAccountSort() || state.billing.accountSort);
   const savedPreset = String(readSavedBillingPreset() || '').trim().toLowerCase();
-  if (['last_month', '3_months', '6_months', '1_year'].includes(savedPreset)) {
+  if (['month_to_date', 'last_month', '3_months', '6_months', '1_year'].includes(savedPreset)) {
     state.billing.rangePreset = savedPreset;
   }
+  const savedOverviewPreset = String(readSavedOverviewBillingPreset() || '').trim().toLowerCase();
+  if (['month_to_date', 'last_month'].includes(savedOverviewPreset)) {
+    state.overviewBilling.rangePreset = savedOverviewPreset;
+  }
+  const savedGrafanaCloudPreset = String(readSavedGrafanaCloudPreset() || '').trim().toLowerCase();
+  if (['month_to_date', 'last_month', '3_months', '6_months', '1_year'].includes(savedGrafanaCloudPreset)) {
+    state.grafanaCloud.rangePreset = savedGrafanaCloudPreset;
+  }
+  renderOverviewBillingPresetButtons();
+  renderGrafanaCloudRangePresetButtons();
   if (dom.liveSearchInput) {
     dom.liveSearchInput.value = state.live.searchText;
   }
+  if (dom.liveGroupSearchInput) {
+    dom.liveGroupSearchInput.value = state.live.groupSearchText;
+  }
+  if (dom.firewallSearchInput) {
+    dom.firewallSearchInput.value = state.firewall.searchText;
+  }
+  if (dom.vpnSearchInput) {
+    dom.vpnSearchInput.value = state.vpn.searchText;
+  }
+  if (dom.vpnSortSelect) {
+    dom.vpnSortSelect.value = normalizeVpnSortValue(state.vpn.sortBy);
+  }
   if (dom.billingSearchInput) {
     dom.billingSearchInput.value = state.billing.searchText;
+  }
+  if (dom.cloudDatabaseSearchInput) {
+    dom.cloudDatabaseSearchInput.value = state.cloudDatabase.searchText;
   }
   ensureBillingRangeDefaults();
   setBillingSnapshotsCollapsed(state.billing.snapshotsCollapsed, { persist: false });
   setBillingTrendCollapsed(state.billing.trendCollapsed, { persist: false });
   setBillingNavExpanded(state.billing.navExpanded, { persist: false });
+  setStorageNavExpanded(state.storage.navExpanded, { persist: false });
   setLiveNavExpanded(state.live.navExpanded, { persist: false });
   setAdminNavExpanded(state.admin.navExpanded, { persist: false });
+  renderStorageNavGroup();
   renderLiveNavGroup();
   setActiveView(readSavedView(), { persist: false });
   await loadServices();
@@ -6894,6 +9711,9 @@ async function init() {
   }
   if (hasClientViewAccess('admin-api-keys')) {
     startupLoads.push(loadApiKeys());
+  }
+  if (hasClientViewAccess('admin-settings')) {
+    startupLoads.push(loadAppConfig());
   }
   if (hasClientViewAccess('admin-backup')) {
     startupLoads.push(loadDbBackupConfig());
@@ -6912,8 +9732,25 @@ async function init() {
       })
     );
   }
+  if (hasClientViewAccess('cloud-database')) {
+    startupLoads.push(
+      loadCloudDatabase({
+        provider: state.cloudDatabase.selectedProvider,
+        persist: false
+      })
+    );
+  }
+  if (hasClientViewAccess('grafana-cloud')) {
+    startupLoads.push(loadGrafanaCloud());
+  }
   if (hasClientViewAccess('live')) {
     startupLoads.push(loadLive({ refresh: false }));
+  }
+  if (hasClientViewAccess('firewall')) {
+    startupLoads.push(loadFirewall());
+  }
+  if (hasClientViewAccess('vpn')) {
+    startupLoads.push(loadVpn());
   }
   if (hasClientViewAccess('security')) {
     startupLoads.push(loadSecurity());
@@ -6947,6 +9784,46 @@ async function init() {
           provider: state.cloudMetrics.selectedProvider,
           persist: false
         }).catch(() => {
+          // ignore background polling failures
+        });
+      }
+    }, 60_000);
+  }
+
+  if (hasClientViewAccess('cloud-database')) {
+    window.setInterval(() => {
+      const activeView = getActiveViewName();
+      if (activeView === 'cloud-database') {
+        void loadCloudDatabase({
+          provider: state.cloudDatabase.selectedProvider,
+          persist: false
+        }).catch(() => {
+          // ignore background polling failures
+        });
+      }
+    }, 60_000);
+  }
+
+  if (hasClientViewAccess('grafana-cloud')) {
+    window.setInterval(() => {
+      if (getActiveViewName() === 'grafana-cloud') {
+        void loadGrafanaCloud().catch(() => {
+          // ignore background polling failures
+        });
+      }
+    }, 60_000);
+  }
+
+  if (hasClientViewAccess('firewall') || hasClientViewAccess('vpn')) {
+    window.setInterval(() => {
+      const activeView = getActiveViewName();
+      if (activeView === 'firewall') {
+        void loadFirewall().catch(() => {
+          // ignore background polling failures
+        });
+      }
+      if (activeView === 'vpn') {
+        void loadVpn().catch(() => {
           // ignore background polling failures
         });
       }

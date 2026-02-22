@@ -11,20 +11,32 @@ const authSessions = new Map();
 const VIEW_KEYS = Object.freeze([
   'dashboard',
   'storage',
+  'storage-unified',
+  'storage-azure',
+  'storage-aws',
+  'storage-gcp',
+  'storage-wasabi',
+  'storage-vsax',
+  'storage-other',
   'ip-address',
   'pricing',
   'billing',
   'tags',
   'cloud-metrics',
+  'cloud-database',
+  'grafana-cloud',
   'live',
+  'firewall',
+  'vpn',
   'security',
   'vendors',
+  'admin-settings',
   'admin-users',
   'admin-api-keys',
   'admin-backup',
   'apidocs'
 ]);
-const ADMIN_ONLY_VIEW_KEY_SET = new Set(['vendors', 'admin-users', 'admin-api-keys', 'admin-backup']);
+const ADMIN_ONLY_VIEW_KEY_SET = new Set(['vendors', 'admin-settings', 'admin-users', 'admin-api-keys', 'admin-backup']);
 const NON_ADMIN_VIEW_KEYS = Object.freeze(VIEW_KEYS.filter((view) => !ADMIN_ONLY_VIEW_KEY_SET.has(view)));
 const VIEW_KEY_SET = new Set(VIEW_KEYS);
 
@@ -57,6 +69,33 @@ function normalizeViewKey(value) {
   }
   if (text === 'utilization' || text === 'cloudmetrics') {
     return 'cloud-metrics';
+  }
+  if (text === 'clouddatabase') {
+    return 'cloud-database';
+  }
+  if (text === 'grafanacloud') {
+    return 'grafana-cloud';
+  }
+  if (text === 'storageunified') {
+    return 'storage-unified';
+  }
+  if (text === 'storageazure') {
+    return 'storage-azure';
+  }
+  if (text === 'storageaws') {
+    return 'storage-aws';
+  }
+  if (text === 'storagegcp') {
+    return 'storage-gcp';
+  }
+  if (text === 'storagewasabi') {
+    return 'storage-wasabi';
+  }
+  if (text === 'storagevsax') {
+    return 'storage-vsax';
+  }
+  if (text === 'storageother') {
+    return 'storage-other';
   }
   return text;
 }

@@ -15,9 +15,27 @@ app.use(express.json({ limit: '2mb' }));
 
 let awsTaggingSdk = undefined;
 
+const SUPPORTED_PROVIDERS = new Set([
+  'azure',
+  'aws',
+  'gcp',
+  'grafana-cloud',
+  'rackspace',
+  'private',
+  'sendgrid',
+  'wasabi',
+  'wasabi-main',
+  'vsax',
+  'other'
+]);
+const LEGACY_PROVIDER_TAG_PREFIX_MIGRATION = [
+  { prefix: 'sendgrid://', provider: 'sendgrid' },
+  { prefix: 'wasabi-main://', provider: 'wasabi-main' }
+];
+
 function normalizeProvider(value) {
   const v = String(value || '').trim().toLowerCase();
-  if (['azure', 'aws', 'gcp', 'rackspace', 'private', 'wasabi', 'vsax', 'other'].includes(v)) {
+  if (SUPPORTED_PROVIDERS.has(v)) {
     return v;
   }
   return 'other';
@@ -59,6 +77,29 @@ function parseJsonSafe(raw, fallback = null) {
   } catch (_error) {
     return fallback;
   }
+}
+
+function migrateLegacyProviderTagRows() {
+  const updateStmt = db.prepare(
+    `
+    UPDATE resource_tags
+    SET provider = ?, updated_at = ?
+    WHERE provider = 'other'
+      AND lower(resource_ref) LIKE ?
+  `
+  );
+  const now = new Date().toISOString();
+  let updated = 0;
+  for (const row of LEGACY_PROVIDER_TAG_PREFIX_MIGRATION) {
+    const prefix = String(row?.prefix || '').trim().toLowerCase();
+    const provider = normalizeProvider(row?.provider);
+    if (!prefix || provider === 'other') {
+      continue;
+    }
+    const result = updateStmt.run(provider, now, `${prefix}%`);
+    updated += Number(result?.changes || 0);
+  }
+  return updated;
 }
 
 function extractWasabiAccountIdFromResourceRef(resourceRef) {
@@ -825,6 +866,17 @@ async function pushCloudTagsForResource(resource, vendor, tags) {
   }
 
   throw new Error(`Cloud tag update is not supported for provider ${provider}.`);
+}
+
+try {
+  const migrated = migrateLegacyProviderTagRows();
+  if (migrated > 0) {
+    console.info(`[tag] Migrated ${migrated} legacy tag row(s) from provider=other.`);
+  }
+} catch (error) {
+  console.error('[tag] Failed to migrate legacy tag rows', {
+    message: error?.message || String(error)
+  });
 }
 
 app.get('/api/health', (_req, res) => {
